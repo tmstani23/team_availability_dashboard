@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
+import TeamMemberList from './components/TeamMemberList';
+import AddTeamMemberForm from './components/AddTeamMemberForm';
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState('Checking...');
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Runs once when component loads - tests connection to backend
-  useEffect(() => {
-    fetch('http://localhost:5000/api/health')
-      .then(res => res.json())
-      .then(data => setBackendStatus(data.message))
-      .catch(() => setBackendStatus('Backend not reachable'));
-  }, []);
+  const handleMemberAdded = () => {
+    setRefreshKey(prev => prev + 1); // Trigger re-fetch in list
+  };
 
   return (
     <div>
       <h1>Team Availability Dashboard</h1>
-      <p>Backend status: {backendStatus}</p>
+      
+      <AddTeamMemberForm onMemberAdded={handleMemberAdded} />
+      
+      <TeamMemberList key={refreshKey} />
     </div>
   );
 }
