@@ -8,3 +8,14 @@ export interface TeamMember {
   isAvailable: boolean;
   lastUpdated: Date;
 }
+
+// Represents a work shift for the schedule matrix
+export interface WorkShift {
+  _id?: string;
+  teamMemberId: string | TeamMember;
+  date: string;           // YYYY-MM-DD
+  startTime: string;      // HH:mm (local to member)
+  endTime: string;        // HH:mm
+  isBreak: boolean;       // e.g. lunch or meeting
+  notes?: string;
+}
