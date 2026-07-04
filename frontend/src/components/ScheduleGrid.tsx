@@ -1,13 +1,14 @@
-import type { TeamMember } from '../types';
+import { useTeam } from '../context/TeamContext';
 
-interface Props {
-    members: TeamMember[];
-    shifts: any[];
-}
+const ScheduleGrid = () => {
+    // 1. Read live synchronizing records directly out of our global application context hook stream
+    const { members, shifts, loading } = useTeam();
 
-const ScheduleGrid = ({ members, shifts }: Props) => {
     // Hours from 8:00 to 20:00
     const hours = Array.from({ length: 13 }, (_, i) => i + 8);
+
+    // 2. Safety protection barrier while data collections initialize on app startup
+    if (loading) return <div style={{ color: '#fff', padding: '16px' }}>Loading schedule data...</div>;
 
     return (
         <div>
@@ -48,7 +49,13 @@ const ScheduleGrid = ({ members, shifts }: Props) => {
 
                             {/* Team Member Rows */}
                             {members.map(member => {
-                                const memberShifts = shifts.filter(s => String(s.teamMemberId) === String(member._id) || String(s.teamMemberId?._id) === String(member._id));
+                                const memberShifts = shifts.filter(s => {
+                                    const shiftMemberId = typeof s.teamMemberId === 'string'
+                                        ? s.teamMemberId
+                                        : s.teamMemberId?._id; // Added optional chaining to prevent crash layout mutations
+
+                                    return String(shiftMemberId) === String(member._id);
+                                });
 
                                 return (
                                     <div key={member._id} style={{
@@ -70,13 +77,15 @@ const ScheduleGrid = ({ members, shifts }: Props) => {
                                         </div>
 
                                         {hours.map(hour => {
+                                            // Find the shift (if any) that covers this hour for the current member
                                             const shift = memberShifts.find(s => {
-                                                const startHour = parseInt(s.startTime.split(':'));
-                                                const endHour = parseInt(s.endTime.split(':'));
+                                                const startHour = parseInt(s.startTime.split(':')[0]);
+                                                const endHour = parseInt(s.endTime.split(':')[0]);
                                                 return hour >= startHour && hour < endHour;
                                             });
 
-                                            const isStartOfShift = shift && hour === parseInt(shift.startTime.split(':'));
+                                            // Only show time labels on the first cell of a shift
+                                            const isStartOfShift = shift && hour === parseInt(shift.startTime.split(':')[0]);
 
                                             return (
                                                 <div

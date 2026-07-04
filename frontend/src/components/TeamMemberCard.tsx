@@ -3,39 +3,30 @@ import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { useTeam } from '../context/TeamContext';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-interface Props {
-  member: TeamMember;
-  onUpdate: () => void;
+interface TeamMemberCardProps {
+  member: TeamMember; // Cleaned: No extra operational method props expected here
 }
 
-const TeamMemberCard = ({ member, onUpdate }: Props) => {
+const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
+  // Consume your preserved handlers right from the context stream
+  const { toggleAvailability, deleteMember, refreshAllData } = useTeam();
+  
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState(member);
   const [editError, setEditError] = useState('');
 
-  const handleToggle = async () => {
-    await fetch(`http://localhost:5000/api/team-members/${member._id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isAvailable: !member.isAvailable })
-    });
-    onUpdate();
-  };
-
-  const handleDelete = async () => {
-    if (!confirm('Delete this member?')) return;
-    await fetch(`http://localhost:5000/api/team-members/${member._id}`, { method: 'DELETE' });
-    onUpdate();
+  const handleToggle = () => {
+    toggleAvailability(member._id, member.isAvailable);
   };
 
   const handleSaveEdit = async () => {
     setEditError('');
 
-    // Basic validation for edit
     if (!editData.name || !editData.email || !editData.timezone || !editData.role) {
       setEditError('All fields are required');
       return;
@@ -53,17 +44,15 @@ const TeamMemberCard = ({ member, onUpdate }: Props) => {
         body: JSON.stringify(editData)
       });
       setIsEditing(false);
-      setEditError('');
-      onUpdate();
+      await refreshAllData(); // Reloads both backend datasets cleanly on details change
     } catch (err) {
       setEditError('Failed to update member');
     }
   };
 
   return (
-    <div style={{ border: '1px solid #ccc', padding: '1rem', borderRadius: '8px' }}>
+    <div style={{ border: '1px solid #333', padding: '1rem', borderRadius: '8px', backgroundColor: '#1e2224' }}>
       {isEditing ? (
-        // Edit mode with validation and dropdown
         <div>
           <h4>Editing {member.name}</h4>
           {editError && <p style={{ color: 'red' }}>{editError}</p>}
@@ -71,7 +60,6 @@ const TeamMemberCard = ({ member, onUpdate }: Props) => {
           <input value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} />
           <input value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
           
-          {/* Timezone dropdown for edit */}
           <select value={editData.timezone} onChange={e => setEditData({...editData, timezone: e.target.value})}>
             <option value="America/New_York">America/New_York (Eastern)</option>
             <option value="America/Chicago">America/Chicago (Central)</option>
@@ -87,7 +75,6 @@ const TeamMemberCard = ({ member, onUpdate }: Props) => {
           <button onClick={() => setIsEditing(false)}>Cancel</button>
         </div>
       ) : (
-        // Normal view mode
         <div>
           <h3>{member.name}</h3>
           <p><strong>Role:</strong> {member.role}</p>
@@ -95,7 +82,7 @@ const TeamMemberCard = ({ member, onUpdate }: Props) => {
           <p><strong>Email:</strong> {member.email}</p>
           <p>
             <strong>Status:</strong> 
-            <span style={{ color: member.isAvailable ? 'green' : 'red' }}>
+            <span style={{ color: member.isAvailable ? '#4caf50' : '#f44336' }}>
               {member.isAvailable ? '✅ Available' : '❌ Not Available'}
             </span>
           </p>
@@ -104,7 +91,8 @@ const TeamMemberCard = ({ member, onUpdate }: Props) => {
           <div style={{ marginTop: '10px' }}>
             <button onClick={handleToggle}>Toggle Availability</button>
             <button onClick={() => setIsEditing(true)}>Edit</button>
-            <button onClick={handleDelete} style={{ background: '#dc3545', color: 'white' }}>Delete</button>
+            {/* Calls the centralized delete confirmation logic */}
+            <button onClick={() => deleteMember(member._id)} style={{ background: '#dc3545', color: 'white' }}>Delete</button>
           </div>
         </div>
       )}

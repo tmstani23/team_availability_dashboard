@@ -1,37 +1,48 @@
-import { useState, useEffect } from 'react';
 import TeamMemberList from './components/TeamMemberList';
 import AddTeamMemberForm from './components/AddTeamMemberForm';
 import ScheduleGrid from './components/ScheduleGrid';
+import TeamStatusSidebar from './components/TeamStatusSidebar';
+import { TeamProvider, useTeam } from './context/TeamContext';
 
-function App() {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [shifts, setShifts] = useState([]);
-  const [members, setMembers] = useState([]);
-  
-  useEffect(() => {
-  fetch('http://localhost:5000/api/team-members')
-    .then(res => res.json())
-    .then(setMembers);
-  }, []);
-
-  useEffect(() => {
-  fetch('http://localhost:5000/api/work-shifts')
-    .then(res => res.json())
-    .then(setShifts);
-  }, []);
-
-  const handleMemberAdded = () => {
-    setRefreshKey(prev => prev + 1); // Trigger re-fetch in list
-  };
+function DashboardContent() {
+  const { handleMemberAdded } = useTeam();
 
   return (
-    <div>
-      <h1>Team Availability Dashboard</h1>
+    <div style={{ 
+      display: 'flex', 
+      width: '100%', 
+      boxSizing: 'border-box', 
+      minHeight: '100vh', 
+      backgroundColor: '#0f1112', 
+      color: '#fff' 
+    }}>
       
-      <AddTeamMemberForm onMemberAdded={handleMemberAdded} />
-      <ScheduleGrid members={members} shifts={shifts} />
-      <TeamMemberList key={refreshKey} />
+      {/* Main Panel Content */}
+      <div style={{ flex: 1, padding: '2rem', boxSizing: 'border-box' }}>
+        <h1>Team Availability Dashboard</h1>
+        
+        <AddTeamMemberForm onMemberAdded={handleMemberAdded} />
+        
+        {/* Cleaned: No props needed anymore! */}
+        <ScheduleGrid />
+        
+        <TeamMemberList />
+      </div>
+
+      {/* Sidebar Content Container Layout */}
+      <div style={{ width: '280px', flexShrink: 0 }}>
+        <TeamStatusSidebar />
+      </div>
+
     </div>
+  );
+}
+
+function App() {
+  return (
+    <TeamProvider>
+      <DashboardContent />
+    </TeamProvider>
   );
 }
 

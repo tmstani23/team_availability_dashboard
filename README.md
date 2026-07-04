@@ -9,6 +9,7 @@ A production-grade, real-time workspace visualizer built to coordinate global en
 *   **Live Availability Sidebar**: A real-time tracking panel showing immediate employee working states (`Active`, `Away`, `Do Not Disturb`, `Offline`).
 *   **Meeting Overlap Finder**: A scheduling tool that scans selected team profiles and highlights the exact hours where everyone shares overlapping availability.
 *   **Asynchronous Break Logging**: Quick-action controls allowing workers to log temporary absences, instantly updating the collective team dashboard state.
+*   **Profile / Weekly Hours**: A place where each person sets their normal recurring schedule (e.g. Mon–Fri 9–5 in their timezone). The system then automatically generates today’s shifts from that pattern + any one-off overrides.
 
 ## Technical Architecture
 
