@@ -18,10 +18,10 @@ function DashboardContent() {
     }}>
       
       {/* Main Panel Content */}
-      <div style={{ flex: 1, padding: '2rem', boxSizing: 'border-box' }}>
+      <div className="bg-blue-500 text-white p-4">
         <h1>Team Availability Dashboard</h1>
         
-        <AddTeamMemberForm onMemberAdded={handleMemberAdded} />
+        <AddTeamMemberForm />
         
         {/* Cleaned: No props needed anymore! */}
         <ScheduleGrid />
