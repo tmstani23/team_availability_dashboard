@@ -17,8 +17,22 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const newMember = new TeamMemberModel(req.body);
-    await newMember.save();
-    res.status(201).json(newMember);
+    const savedMember = await newMember.save();
+
+    // Create initial shift if times provided
+    if (req.body.startTime && req.body.endTime) {
+      const WorkShiftModel = (await import('../models/WorkShift')).default;
+      const initialShift = new WorkShiftModel({
+        teamMemberId: savedMember._id,
+        date: new Date().toISOString().split('T')[0], // today
+        startTime: req.body.startTime,
+        endTime: req.body.endTime,
+        isBreak: false
+      });
+      await initialShift.save();
+    }
+
+    res.status(201).json(savedMember);
   } catch (error) {
     res.status(400).json({ message: 'Error creating member' });
   }
