@@ -18,7 +18,7 @@ function DashboardContent() {
     }}>
       
       {/* Main Panel Content */}
-      <div className="bg-blue-500 text-white p-4">
+      <div className="bg-zinc-900 text-white p-4">
         <h1>Team Availability Dashboard</h1>
         
         <AddTeamMemberForm />

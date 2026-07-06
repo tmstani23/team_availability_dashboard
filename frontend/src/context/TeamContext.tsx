@@ -1,14 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-
-interface TeamContextType {
-  members: any[];
-  shifts: any[];
-  loading: boolean;
-  toggleAvailability: (id: string, currentStatus: boolean) => Promise<void>;
-  deleteMember: (id: string) => Promise<void>;
-  refreshAllData: () => Promise<void>;
-  handleMemberAdded: () => void;
-}
+import type { TeamContextType } from '../types';
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
@@ -16,6 +7,13 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   const [shifts, setShifts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewerId, setViewerId] = useState<string | null>(null); // ID of the "currently logged-in" simulated user
+
+  const setViewer = (id: string) => setViewerId(id);
+
+  // Find the viewer member
+  const viewerMember = members.find(m => m._id === viewerId) || members[0];
+  const viewerTimezone = viewerMember?.timezone || 'America/Chicago';
 
   const refreshAllData = async () => {
     try {
@@ -25,7 +23,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
       ]);
       const membersData = await membersRes.json();
       const shiftsData = await shiftsRes.json();
-      
+
       setMembers(Array.isArray(membersData) ? membersData : []);
       setShifts(Array.isArray(shiftsData) ? shiftsData : []);
     } catch (err) {
@@ -90,7 +88,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, shifts, loading, toggleAvailability, deleteMember, refreshAllData, handleMemberAdded }}>
+    <TeamContext.Provider value={{ members, shifts, loading, toggleAvailability, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
       {children}
     </TeamContext.Provider>
   );

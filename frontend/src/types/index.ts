@@ -17,3 +17,17 @@ export interface WorkShift {
   isBreak?: boolean;
   notes?: string;
 }
+
+export interface TeamContextType {
+  members: any[];
+  shifts: any[];
+  loading: boolean;
+  toggleAvailability: (id: string, currentStatus: boolean) => Promise<void>;
+  deleteMember: (id: string) => Promise<void>;
+  refreshAllData: () => Promise<void>;
+  handleMemberAdded: () => void;
+  viewerId: string | null;
+  setViewer: (id: string) => void;
+  viewerMember: any;
+  viewerTimezone: string;
+}
