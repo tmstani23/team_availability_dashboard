@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTeam } from '../context/TeamContext';
+import dayjs from 'dayjs';
 
 const AddTeamMemberForm = () => {
   // Single state object for all fields (controlled inputs) rather than
@@ -34,20 +35,23 @@ const AddTeamMemberForm = () => {
       return;
     }
 
-    // Basic time validation (start before end)
-    if (formData.startTime >= formData.endTime) {
+    // Parse times using an arbitrary fallback date string (ISO 8601 template format)
+    const start = dayjs(`2026-01-01T${formData.startTime}`);
+    const end = dayjs(`2026-01-01T${formData.endTime}`);
+
+    if (!start.isBefore(end)) {
       setError('Start time must be before end time');
       return;
     }
+    
+    // Ensure shifts only start and end exactly on the hour to match ScheduleGrid granularity
+    if (start.minute() !== 0 || end.minute() !== 0) {
+      setError('Shifts must start and end exactly on the hour (e.g., 09:00)');
+      return;
+    }
 
-    // Convert "HH:mm" to total minutes so we can measure shift duration
-    const [startH, startM] = formData.startTime.split(':').map(Number);
-    const [endH, endM] = formData.endTime.split(':').map(Number);
-    const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-
-    // ScheduleGrid only renders at hour granularity, so anything under an hour
-    // won't visibly appear on the grid even though it saves fine to the DB
-    if (durationMinutes < 60) {
+    // shifts under 60 mins will completely disappear from the visual interface.
+    if (end.diff(start, 'minute') < 60) {
       setError('Shift must be at least 1 hour long');
       return;
     }
@@ -76,7 +80,7 @@ const AddTeamMemberForm = () => {
   };
 
   return (
-    <div className="bg-zinc-900 p-6 rounded-xl shadow-lg max-w-md">
+    <div className="bg-zinc-800 border border-zinc-700/60 p-6 rounded-xl shadow-xl max-w-md mx-auto">
       <form onSubmit={handleSubmit} className="space-y-4">
         <h3 className="text-xl font-semibold text-white">Add New Team Member</h3>
 
@@ -85,7 +89,7 @@ const AddTeamMemberForm = () => {
         <div>
           <label className="block text-sm text-zinc-400 mb-1">Name</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
             placeholder="e.g. Jane Smith"
             value={formData.name}
             onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -96,7 +100,7 @@ const AddTeamMemberForm = () => {
         <div>
           <label className="block text-sm text-zinc-400 mb-1">Email</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
             type="email"
             placeholder="jane@company.com"
             value={formData.email}
@@ -107,10 +111,9 @@ const AddTeamMemberForm = () => {
 
         <div>
           <label className="block text-sm text-zinc-400 mb-1">Timezone</label>
-          {/* Fixed list rather than free text — keeps values as valid IANA
-              timezone strings, which dayjs.tz() requires elsewhere in the app */}
+          {/* Fixed list rather than free text to keep values as valid IANA timezone strings */}
           <select
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
             value={formData.timezone}
             onChange={e => setFormData({ ...formData, timezone: e.target.value })}
             required
@@ -130,7 +133,7 @@ const AddTeamMemberForm = () => {
         <div>
           <label className="block text-sm text-zinc-400 mb-1">Role</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
             placeholder="e.g. Engineer"
             value={formData.role}
             onChange={e => setFormData({ ...formData, role: e.target.value })}
@@ -138,14 +141,13 @@ const AddTeamMemberForm = () => {
           />
         </div>
 
-        {/* Shift Start/End are grouped side-by-side since they're logically
-            paired and rarely need to wrap independently */}
+        {/* Shift Start/End are grouped side-by-side since they are logically paired */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-zinc-400 mb-1">Shift Start</label>
             <input
               type="time"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
               value={formData.startTime}
               onChange={e => setFormData({ ...formData, startTime: e.target.value })}
               required
@@ -155,7 +157,7 @@ const AddTeamMemberForm = () => {
             <label className="block text-sm text-zinc-400 mb-1">Shift End</label>
             <input
               type="time"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-blue-500 hover:border-zinc-600"
+              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
               value={formData.endTime}
               onChange={e => setFormData({ ...formData, endTime: e.target.value })}
               required
@@ -165,7 +167,7 @@ const AddTeamMemberForm = () => {
 
         <button
           type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors"
+          className="w-full bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white font-medium py-3 rounded-lg transition-all duration-200 shadow-lg shadow-violet-500/10 cursor-pointer"
         >
           Add Member
         </button>
