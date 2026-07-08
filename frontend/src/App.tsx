@@ -14,11 +14,10 @@ function DashboardContent() {
       <div className="flex-1 min-w-0 bg-zinc-900 text-white p-4">
         <h1 className="text-3xl font-bold mb-4">Team Availability Dashboard</h1>
 
-        <AddTeamMemberForm />
-
         <ScheduleGrid />
-
         <TeamMemberList />
+        <AddTeamMemberForm />
+        
       </div>
 
       {/* Sidebar Content Container Layout */}

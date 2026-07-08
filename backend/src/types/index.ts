@@ -2,11 +2,20 @@
 export interface TeamMember {
   _id?: string;
   name: string;
-  email: string;
   timezone: string;
   role: string;
   isAvailable: boolean;
   lastUpdated: Date;
+}
+
+// Auth credentials + role, kept separate from TeamMember so password/email
+// never flow through team-data API responses
+export interface UserBadge {
+  _id?: string;
+  email: string;
+  password: string;
+  role: 'admin' | 'member';
+  teamMemberId: string | TeamMember;
 }
 
 // Represents a work shift for the schedule matrix

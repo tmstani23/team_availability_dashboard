@@ -1,11 +1,20 @@
 export interface TeamMember {
   _id: string;
   name: string;
-  email: string;
   timezone: string;
   role: string;
   isAvailable: boolean;
   lastUpdated: string;
+}
+
+// Auth credentials + role, kept separate from TeamMember so password/email
+// never flow through team-data API responses
+export interface UserBadge {
+  _id?: string;
+  email: string;
+  role: 'admin' | 'member';
+  teamMemberId: string | TeamMember;
+  // no password field here — it should never be sent to or stored in the frontend
 }
 
 export interface WorkShift {

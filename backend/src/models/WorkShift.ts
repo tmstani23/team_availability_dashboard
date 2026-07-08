@@ -9,6 +9,6 @@ const workShiftSchema = new mongoose.Schema({
   endTime: { type: String, required: true },
   isBreak: { type: Boolean, default: false },
   notes: { type: String }
-});
+}, { timestamps: true });
 
 export default mongoose.model<WorkShift>('WorkShift', workShiftSchema);
