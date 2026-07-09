@@ -3,7 +3,7 @@ import TeamMemberModel from '../models/TeamMember';
 
 const router = express.Router();
 
-// GET all team members - reads from database
+// GET all team members
 router.get('/', async (req, res) => {
   try {
     const members = await TeamMemberModel.find();
@@ -13,18 +13,17 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST new team member - creates record
+// POST new team member
 router.post('/', async (req, res) => {
   try {
     const newMember = new TeamMemberModel(req.body);
     const savedMember = await newMember.save();
 
-    // Create initial shift if times provided
     if (req.body.startTime && req.body.endTime) {
       const WorkShiftModel = (await import('../models/WorkShift')).default;
       const initialShift = new WorkShiftModel({
         teamMemberId: savedMember._id,
-        date: new Date().toISOString().split('T')[0], // today
+        date: new Date().toISOString().split('T')[0],
         startTime: req.body.startTime,
         endTime: req.body.endTime,
         isBreak: false
@@ -42,16 +41,52 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const updated = await TeamMemberModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    
+    // ✨ FIX: Return 404 instead of 200 with null if member doesn't exist
+    if (!updated) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
+    
     res.json(updated);
   } catch (error) {
     res.status(400).json({ message: 'Error updating member' });
   }
 });
 
+// 🔄 ADDED: PATCH update status endpoint for toggleAvailability
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { isAvailable } = req.body;
+
+    // ✨ FIX: Minor non-blocking bullet type guard
+    if (typeof isAvailable !== 'boolean') {
+      return res.status(400).json({ message: 'isAvailable must be a boolean' });
+    }
+
+    const updated = await TeamMemberModel.findByIdAndUpdate(
+      req.params.id,
+      { isAvailable, lastUpdated: new Date() },
+      { new: true }
+    );
+
+    // ✨ FIX: Return 404 instead of 200 with null
+    if (!updated) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ message: 'Error updating status' });
+  }
+});
+
 // DELETE a team member by ID
 router.delete('/:id', async (req, res) => {
   try {
-    await TeamMemberModel.findByIdAndDelete(req.params.id);
+    const deleted = await TeamMemberModel.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
     res.json({ message: 'Member deleted' });
   } catch (error) {
     res.status(400).json({ message: 'Error deleting member' });

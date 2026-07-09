@@ -52,8 +52,8 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       // 2. Make the API call silently in the background
-      await fetch(`http://localhost:5000/api/team-members/${id}`, {
-        method: 'PUT',
+      await fetch(`http://localhost:5000/api/team-members/${id}/status`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isAvailable: !currentStatus })
       });

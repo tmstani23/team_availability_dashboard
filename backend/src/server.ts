@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import workShiftRoutes from './routes/workShiftRoutes';
+import authRoutes from './routes/authRoutes';
 
 import teamMembersRoutes from './routes/teamMembersRoutes';
 
@@ -21,6 +22,9 @@ app.use(express.json());
 
 // Security / connection helper: Lets the React frontend safely call this backend
 app.use(cors());
+
+//Mount Auth routes
+app.use('/api/auth', authRoutes);
 
 // Mount team members routes
 app.use('/api/team-members', teamMembersRoutes);
