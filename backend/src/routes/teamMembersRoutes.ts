@@ -149,4 +149,34 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+router.patch('/:id/role', authenticate, requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const { role } = req.body;
+
+    if (role !== 'admin' && role !== 'member') {
+      return res.status(400).json({ message: 'role must be admin or member' });
+    }
+
+    const target = await UserBadgeModel.findOne({ teamMemberId: req.params.id });
+    if (!target) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Block demoting the last admin standing - not "yourself" specifically,
+    // since that's the actual failure mode worth preventing (zero admins left)
+    if (target.role === 'admin' && role === 'member') {
+      const adminCount = await UserBadgeModel.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) {
+        return res.status(400).json({ message: 'Cannot demote the last remaining admin' });
+      }
+    }
+
+    target.role = role;
+    await target.save();
+
+    res.json({ teamMemberId: target.teamMemberId, role: target.role });
+  } catch (error) {
+    res.status(400).json({ message: 'Error updating role' });
+  }
+});
 export default router;

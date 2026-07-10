@@ -75,11 +75,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value= {{ role, teamMemberId, isAuthenticated: !!role, loading, login, logout }
-}>
-    { children }
-    </AuthContext.Provider>
-  );
+        <AuthContext.Provider value={{ role, teamMemberId, isAuthenticated: !!role, loading, login, logout }}>
+            {children}
+        </AuthContext.Provider>
+    );
 };
 
 export const useAuth = () => {
