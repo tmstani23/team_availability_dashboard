@@ -7,19 +7,28 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   const [shifts, setShifts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewerId, setViewerId] = useState<string | null>(null); // ID of the "currently logged-in" simulated user
+
+  // ID of the simulated "currently viewing as" user - a stand-in for real
+  // auth-driven identity in parts of the UI that haven't been wired to
+  // AuthContext yet (e.g. picking whose local time to display)
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   const setViewer = (id: string) => setViewerId(id);
 
-  // Find the viewer member
+  // Falls back to the first member in the list if no viewer has been
+  // explicitly selected yet, so the UI always has someone to display
   const viewerMember = members.find(m => m._id === viewerId) || members[0];
   const viewerTimezone = viewerMember?.timezone || 'America/Chicago';
 
   const refreshAllData = async () => {
     try {
+      // credentials: 'include' is required on every request now - these
+      // routes are protected by the authenticate middleware, which reads
+      // the httpOnly session cookie. Without this option, the browser
+      // won't attach that cookie cross-origin, and every request 401s.
       const [membersRes, shiftsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/team-members'),
-        fetch('http://localhost:5000/api/work-shifts')
+        fetch('http://localhost:5000/api/team-members', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/work-shifts', { credentials: 'include' })
       ]);
       const membersData = await membersRes.json();
       const shiftsData = await shiftsRes.json();
@@ -33,6 +42,8 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Fires once when TeamProvider mounts (which only happens after login,
+  // per App.tsx's AuthGate) - fetches the initial roster + schedule data
   useEffect(() => {
     refreshAllData();
   }, []);
@@ -41,9 +52,10 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     refreshAllData();
   };
 
-  // 🔄 PRESERVED: Your exact background toggle with automated fallback recovery logic
   const toggleAvailability = async (id: string, currentStatus: boolean) => {
-    // 1. Instantly update global state using ._id so all layout views react in real time
+    // Optimistic update: flip the UI immediately rather than waiting on the
+    // network round-trip, so toggling status feels instant. If the request
+    // fails below, we roll this back to the real value.
     setMembers(prev =>
       prev.map(member =>
         member._id === id ? { ...member, isAvailable: !currentStatus } : member
@@ -51,15 +63,16 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     );
 
     try {
-      // 2. Make the API call silently in the background
       await fetch(`http://localhost:5000/api/team-members/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ isAvailable: !currentStatus })
       });
     } catch (err) {
       console.error('Failed to toggle availability:', err);
-      // 3. Rollback state instantly across all views if network request fails
+      // Rollback: request failed, so revert the optimistic flip back to
+      // what it actually was before this function ran
       setMembers(prev =>
         prev.map(member =>
           member._id === id ? { ...member, isAvailable: currentStatus } : member
@@ -68,21 +81,21 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 🗑️ PRESERVED: Your exact deletion confirmation layout block with rollback safeguards
   const deleteMember = async (id: string) => {
     if (!confirm('Delete this team member?')) return;
 
+    // Snapshot the current list before optimistically removing the member,
+    // so we have something to restore if the DELETE request fails
     const originalMembers = [...members];
-    // Optimistically remove from all UI elements instantly
     setMembers(prev => prev.filter(member => member._id !== id));
 
     try {
       await fetch(`http://localhost:5000/api/team-members/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
     } catch (err) {
       console.error('Failed to delete member:', err);
-      // Rollback to original database snapshot if API call fails
       setMembers(originalMembers);
     }
   };

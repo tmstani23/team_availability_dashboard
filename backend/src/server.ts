@@ -1,44 +1,43 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import workShiftRoutes from './routes/workShiftRoutes';
 import authRoutes from './routes/authRoutes';
-
 import teamMembersRoutes from './routes/teamMembersRoutes';
 
 dotenv.config();
 
 const app = express();
 
-// Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI!)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Middleware section: Tools that run on every request
-// Parses incoming JSON data from the frontend (important for availability updates)
 app.use(express.json());
 
-// Security / connection helper: Lets the React frontend safely call this backend
-app.use(cors());
+// credentials: true lets the browser send/receive the httpOnly auth cookie
+// across origins (frontend on :5173, backend on :5000 counts as cross-origin
+// even on localhost). The wildcard '*' origin used before this doesn't work
+// once credentials are involved - CORS requires an explicit origin instead.
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}));
 
-//Mount Auth routes
+// Parses the "token" cookie on incoming requests into req.cookies, so
+// authenticate middleware can read it
+app.use(cookieParser());
+
 app.use('/api/auth', authRoutes);
-
-// Mount team members routes
 app.use('/api/team-members', teamMembersRoutes);
-
-
-
-// Mount shift routes
 app.use('/api/work-shifts', workShiftRoutes);
 
 app.get('/', (req, res) => {
   res.send('Team Availability Backend is running');
 });
 
-// Simple test route
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend is connected' });
 });

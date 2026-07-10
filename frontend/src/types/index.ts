@@ -40,3 +40,12 @@ export interface TeamContextType {
   viewerMember: any;
   viewerTimezone: string;
 }
+
+export interface AuthContextType {
+  role: 'admin' | 'member' | null;
+  teamMemberId: string | null;
+  isAuthenticated: boolean;
+  loading: boolean; // true while checking for an existing session on page load
+  login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  logout: () => Promise<void>;
+}

@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import UserBadgeModel from '../models/UserBadge';
-import { AuthPayload } from '../middleware/auth';
+import { AuthPayload, authenticate, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -40,10 +40,44 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: '24h' });
 
-    res.json({ token, role: user.role, teamMemberId: user.teamMemberId });
+    // httpOnly blocks JS from ever reading this cookie (even via
+    // document.cookie), which is what protects the token from theft via
+    // XSS. sameSite: 'lax' blocks it from being sent on most cross-site
+    // requests, covering most CSRF risk without needing a separate CSRF
+    // token at this project's scale.
+    //
+    // path: '/' matters here - without it, the browser defaults a cookie's
+    // path to the directory of the request that set it (here, '/api/auth'),
+    // meaning it would only get sent back on /api/auth/* requests and never
+    // reach /api/team-members or /api/work-shifts.
+    res.cookie('token', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false, // set true once deployed behind HTTPS
+      path: '/',
+      maxAge: 24 * 60 * 60 * 1000 // 24h, matches the JWT's own expiry
+    });
+
+    // Token no longer goes in the response body - it lives only in the cookie
+    res.json({ role: user.role, teamMemberId: user.teamMemberId });
   } catch (error) {
     res.status(500).json({ message: 'Error logging in' });
   }
+});
+
+// POST /api/auth/logout - clears the cookie so the browser stops sending it.
+// path must match what was used to set the cookie, or the browser won't
+// recognize it as the same cookie to clear.
+router.post('/logout', (req, res) => {
+  res.clearCookie('token', { path: '/' });
+  res.json({ message: 'Logged out' });
+});
+
+// GET /api/auth/me - lets the frontend check "am I still logged in?" after
+// a page refresh, since JS can't read the httpOnly cookie itself to check.
+// Reuses authenticate, which already verifies the cookie and populates req.user.
+router.get('/me', authenticate, (req: AuthRequest, res) => {
+  res.json({ role: req.user!.role, teamMemberId: req.user!.teamMemberId });
 });
 
 export default router;
