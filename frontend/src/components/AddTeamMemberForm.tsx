@@ -8,6 +8,7 @@ const AddTeamMemberForm = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     timezone: '',
     role: '',
     startTime: '',
@@ -25,7 +26,7 @@ const AddTeamMemberForm = () => {
     setError('');
 
     // Client-side validation runs before any network call — cheap checks first
-    if (!formData.name || !formData.email || !formData.timezone || !formData.role || !formData.startTime || !formData.endTime) {
+    if (!formData.name || !formData.email || !formData.password ||!formData.timezone || !formData.role || !formData.startTime || !formData.endTime) {
       setError('All fields are required');
       return;
     }
@@ -62,6 +63,7 @@ const AddTeamMemberForm = () => {
       const response = await fetch('http://localhost:5000/api/team-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(formData)
       });
 
@@ -72,7 +74,7 @@ const AddTeamMemberForm = () => {
       handleMemberAdded();
 
       // Reset the form back to its initial empty shape after a successful add
-      setFormData({ name: '', email: '', timezone: '', role: '', startTime: '', endTime: '' });
+      setFormData({ name: '', email: '', password: '', timezone: '', role: '', startTime: '', endTime: '' });
       setError('');
     } catch (err) {
       setError('Failed to add member. Please try again.');
@@ -105,6 +107,18 @@ const AddTeamMemberForm = () => {
             placeholder="jane@company.com"
             value={formData.email}
             onChange={e => setFormData({ ...formData, email: e.target.value })}
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-zinc-400 mb-1">Password</label>
+          <input
+            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            type="password"
+            placeholder="Set an initial password"
+            value={formData.password}
+            onChange={e => setFormData({ ...formData, password: e.target.value })}
             required
           />
         </div>

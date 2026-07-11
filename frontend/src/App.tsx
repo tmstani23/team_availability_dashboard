@@ -1,51 +1,32 @@
-import TeamMemberList from './components/TeamMemberList';
-import AddTeamMemberForm from './components/AddTeamMemberForm';
-import ScheduleGrid from './components/ScheduleGrid';
-import TeamStatusSidebar from './components/TeamStatusSidebar';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import LoginForm from './components/LoginForm';
-import { TeamProvider, useTeam } from './context/TeamContext';
+import ScheduleView from './components/ScheduleView';
+import ManageView from './components/ManageView';
+import AdminLayout from './components/AdminLayout';
+import ProtectedRoute from './components/ProtectedRoute';
+import { TeamProvider } from './context/TeamContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-function DashboardContent() {
-  const { handleMemberAdded } = useTeam();
-
-  return (
-    <div className="flex w-full min-h-screen box-border bg-[#0f1112] text-white">
-      <div className="flex-1 min-w-0 bg-zinc-900 text-white p-4">
-        <h1 className="text-3xl font-bold mb-4">Team Availability Dashboard</h1>
-        <ScheduleGrid />
-        <TeamMemberList />
-        <AddTeamMemberForm />
-      </div>
-      <div className="w-[280px] shrink-0">
-        <TeamStatusSidebar />
-      </div>
-    </div>
-  );
+// Kicks an already-logged-in user off /login straight to their dashboard,
+// so a stale bookmark or back-navigation can't land them on the login form
+function LoginRoute() {
+  const { isAuthenticated, loading, role } = useAuth();
+  if (loading) return null;
+  // Admins land on /admin/schedule (which has the tab nav to reach Manage);
+  // /dashboard has no tabs, so sending an admin there would strand them
+  // with no way to reach the team overview / add-member tools
+  if (isAuthenticated) {
+    return <Navigate to={role === 'admin' ? '/admin/schedule' : '/dashboard'} replace />;
+  }
+  return <LoginForm />;
 }
 
-// Decides whether to show the login screen or the dashboard, based on
-// whether AuthContext has resolved a session yet. TeamProvider is only
-// mounted once authenticated, since its fetches now require a valid cookie -
-// mounting it before login would just produce 401s.
-function AuthGate() {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0f1112] text-white flex items-center justify-center">
-        Loading...
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <LoginForm />;
-  }
-
+// TeamProvider only mounts once ProtectedRoute confirms a session exists -
+// same rule the old AuthGate followed, since its fetches require auth
+function ProtectedLayout() {
   return (
     <TeamProvider>
-      <DashboardContent />
+      <Outlet />
     </TeamProvider>
   );
 }
@@ -53,7 +34,32 @@ function AuthGate() {
 function App() {
   return (
     <AuthProvider>
-      <AuthGate />
+      <Routes>
+        <Route path="/login" element={<LoginRoute />} />
+
+        {/* Layer 1: must be logged in (any role) */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<ProtectedLayout />}>
+            <Route path="/dashboard" element={<ScheduleView />} />
+
+            {/* Layer 2: nested inside layer 1, adds an admin-only check
+                on top - a member hitting /admin/* bounces to /dashboard */}
+            <Route element={<ProtectedRoute requiredRole="admin" />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route path="schedule" element={<ScheduleView />} />
+                <Route path="manage" element={<ManageView />} />
+                {/* Bare /admin with no sub-path defaults to the schedule tab */}
+                <Route index element={<Navigate to="schedule" replace />} />
+              </Route>
+            </Route>
+          </Route>
+        </Route>
+
+        {/* Unknown paths fall through to LoginRoute's logic, which sends
+            admins to /admin/schedule, members to /dashboard, or /login if
+            there's no session at all */}
+        <Route path="*" element={<LoginRoute />} />
+      </Routes>
     </AuthProvider>
   );
 }

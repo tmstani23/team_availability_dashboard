@@ -15,7 +15,7 @@ interface TeamMemberCardProps {
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   // Consume your preserved handlers right from the context stream
   const { toggleAvailability, deleteMember, refreshAllData } = useTeam();
-  
+
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState(member);
   const [editError, setEditError] = useState('');
@@ -27,13 +27,8 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   const handleSaveEdit = async () => {
     setEditError('');
 
-    if (!editData.name || !editData.email || !editData.timezone || !editData.role) {
+    if (!editData.name || !editData.timezone || !editData.role) {
       setEditError('All fields are required');
-      return;
-    }
-
-    if (!editData.email.includes('@')) {
-      setEditError('Please enter a valid email');
       return;
     }
 
@@ -41,6 +36,9 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
       await fetch(`http://localhost:5000/api/team-members/${member._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        // sends the httpOnly session cookie so the backend's authenticate +
+        // requireAdmin middleware can verify this request before updating
+        credentials: 'include',
         body: JSON.stringify(editData)
       });
       setIsEditing(false);
@@ -56,11 +54,10 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
         <div>
           <h4>Editing {member.name}</h4>
           {editError && <p style={{ color: 'red' }}>{editError}</p>}
-          
-          <input value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} />
-          <input value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
-          
-          <select value={editData.timezone} onChange={e => setEditData({...editData, timezone: e.target.value})}>
+
+          <input value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} />
+
+          <select value={editData.timezone} onChange={e => setEditData({ ...editData, timezone: e.target.value })}>
             <option value="America/New_York">America/New_York (Eastern)</option>
             <option value="America/Chicago">America/Chicago (Central)</option>
             <option value="America/Denver">America/Denver (Mountain)</option>
@@ -69,8 +66,8 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
             <option value="Asia/Tokyo">Asia/Tokyo</option>
           </select>
 
-          <input value={editData.role} onChange={e => setEditData({...editData, role: e.target.value})} />
-          
+          <input value={editData.role} onChange={e => setEditData({ ...editData, role: e.target.value })} />
+
           <button onClick={handleSaveEdit}>Save Changes</button>
           <button onClick={() => setIsEditing(false)}>Cancel</button>
         </div>
@@ -79,9 +76,8 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
           <h3>{member.name}</h3>
           <p><strong>Role:</strong> {member.role}</p>
           <p><strong>Timezone:</strong> {member.timezone}</p>
-          <p><strong>Email:</strong> {member.email}</p>
           <p>
-            <strong>Status:</strong> 
+            <strong>Status:</strong>
             <span style={{ color: member.isAvailable ? '#4caf50' : '#f44336' }}>
               {member.isAvailable ? '✅ Available' : '❌ Not Available'}
             </span>
