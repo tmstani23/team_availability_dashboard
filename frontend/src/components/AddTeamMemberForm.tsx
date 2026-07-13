@@ -26,7 +26,7 @@ const AddTeamMemberForm = () => {
     setError('');
 
     // Client-side validation runs before any network call — cheap checks first
-    if (!formData.name || !formData.email || !formData.password ||!formData.timezone || !formData.role || !formData.startTime || !formData.endTime) {
+    if (!formData.name || !formData.email || !formData.password || !formData.timezone || !formData.role || !formData.startTime || !formData.endTime) {
       setError('All fields are required');
       return;
     }
@@ -44,7 +44,7 @@ const AddTeamMemberForm = () => {
       setError('Start time must be before end time');
       return;
     }
-    
+
     // Ensure shifts only start and end exactly on the hour to match ScheduleGrid granularity
     if (start.minute() !== 0 || end.minute() !== 0) {
       setError('Shifts must start and end exactly on the hour (e.g., 09:00)');
@@ -67,7 +67,14 @@ const AddTeamMemberForm = () => {
         body: JSON.stringify(formData)
       });
 
-      if (!response.ok) throw new Error('Failed to add member');
+      if (!response.ok) {
+        // Backend always sends a specific { message } on failure (e.g.
+        // "Email already registered", "Error creating member") - surface
+        // that instead of a generic string so the real cause is visible
+        // without needing to open the Network tab every time
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.message || 'Failed to add member');
+      }
 
       // Pull fresh data from the server rather than manually updating local
       // state — keeps this component dumb and avoids state drift
@@ -77,7 +84,10 @@ const AddTeamMemberForm = () => {
       setFormData({ name: '', email: '', password: '', timezone: '', role: '', startTime: '', endTime: '' });
       setError('');
     } catch (err) {
-      setError('Failed to add member. Please try again.');
+      // Logged for dev visibility in the console, in addition to being
+      // shown in the UI via setError below
+      console.error('Add member failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to add member. Please try again.');
     }
   };
 

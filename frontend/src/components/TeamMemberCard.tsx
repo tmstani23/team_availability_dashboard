@@ -20,8 +20,39 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   const [editData, setEditData] = useState(member);
   const [editError, setEditError] = useState('');
 
+  // Login info (email + role) fetched on demand from GET /:id/badge, not
+  // included with the member data the card already has - keeps that request
+  // separate from the main roster fetch
+  const [badgeInfo, setBadgeInfo] = useState<{ email: string; role: string } | null>(null);
+  const [showBadge, setShowBadge] = useState(false);
+  const [badgeError, setBadgeError] = useState('');
+
   const handleToggle = () => {
     toggleAvailability(member._id, member.isAvailable);
+  };
+
+  const handleViewBadge = async () => {
+    // Badge info won't change without a page reload, so this avoids a
+    // redundant network call every time the button's clicked
+    if (badgeInfo) {
+      setShowBadge(prev => !prev);
+      return;
+    }
+
+    setBadgeError('');
+    try {
+      const res = await fetch(`http://localhost:5000/api/team-members/${member._id}/badge`, {
+        credentials: 'include'
+      });
+
+      if (!res.ok) throw new Error('Failed to fetch login info');
+
+      const data = await res.json();
+      setBadgeInfo(data);
+      setShowBadge(true);
+    } catch (err) {
+      setBadgeError('Failed to load login info');
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -87,9 +118,22 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
           <div style={{ marginTop: '10px' }}>
             <button onClick={handleToggle}>Toggle Availability</button>
             <button onClick={() => setIsEditing(true)}>Edit</button>
+            <button onClick={handleViewBadge}>
+              {showBadge ? 'Hide Login Info' : 'View Login Info'}
+            </button>
             {/* Calls the centralized delete confirmation logic */}
             <button onClick={() => deleteMember(member._id)} style={{ background: '#dc3545', color: 'white' }}>Delete</button>
           </div>
+
+          {badgeError && <p style={{ color: 'red' }}>{badgeError}</p>}
+
+          {showBadge && badgeInfo && (
+            // Only renders once both the toggle is on AND data has actually arrived
+            <div style={{ marginTop: '8px', padding: '8px', background: '#141618', borderRadius: '4px' }}>
+              <p><strong>Email:</strong> {badgeInfo.email}</p>
+              <p><strong>Access Level:</strong> {badgeInfo.role}</p>
+            </div>
+          )}
         </div>
       )}
     </div>

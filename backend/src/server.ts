@@ -12,7 +12,19 @@ dotenv.config();
 const app = express();
 
 mongoose.connect(process.env.MONGODB_URI!)
-  .then(() => console.log('Connected to MongoDB'))
+  .then(async () => {
+    console.log('Connected to MongoDB');
+
+    // dev safety net diffs each model's current schema against the DB and fixes any mismatch
+    // automatically on every server start, instead of needing a manual
+    // trip to Compass. Skipped in production - it can briefly lock a
+    // collection while building/dropping indexes, which is fine for a
+    // small dev dataset but risky to run unattended against live data.
+    if (process.env.NODE_ENV !== 'production') {
+      await mongoose.syncIndexes();
+      console.log('Indexes synced');
+    }
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 app.use(express.json());

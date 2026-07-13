@@ -94,6 +94,26 @@ router.put('/:id', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// GET a team member's login info - admin only. Returns only email + role,
+// never password (excluded by UserBadge's select:false, and not requested
+// here anyway). Kept as its own on-demand route rather than joined into the
+// main GET / response, so the roster/schedule endpoint everyone hits stays
+// as narrow as it's always been - this is a separate, deliberate lookup.
+router.get('/:id/badge', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const badge = await UserBadgeModel.findOne({ teamMemberId: req.params.id });
+
+    if (!badge) {
+      return res.status(404).json({ message: 'No login found for this member' });
+    }
+
+    res.json({ email: badge.email, role: badge.role });
+  } catch (error) {
+    res.status(400).json({ message: 'Error fetching login info' });
+  }
+});
+
+
 // PATCH update a team member's own status - any authenticated user, but only
 // for themselves (or an admin, on anyone's behalf). This is deliberately the
 // ONLY field this route can touch, so it can't be used as a backdoor around
@@ -177,6 +197,32 @@ router.patch('/:id/role', authenticate, requireAdmin, async (req: AuthRequest, r
     res.json({ teamMemberId: target.teamMemberId, role: target.role });
   } catch (error) {
     res.status(400).json({ message: 'Error updating role' });
+  }
+});
+
+// PATCH reset a team member's password - admin only. This is an admin
+// override (no current-password check), not a self-service "change my
+// password" flow - matches the same trust model as role promotion above.
+router.patch('/:id/password', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+
+    const target = await UserBadgeModel.findOne({ teamMemberId: req.params.id });
+    if (!target) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    target.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await target.save();
+
+    // Never echo the password (hashed or not) back in the response
+    res.json({ message: 'Password updated' });
+  } catch (error) {
+    res.status(400).json({ message: 'Error updating password' });
   }
 });
 export default router;
