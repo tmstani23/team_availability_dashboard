@@ -8,26 +8,29 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamMemberList = () => {
-  // Extract your live synchronizing records and global loading states straight from context
   const { members, loading } = useTeam();
 
-  // Keep loading check safe at the bottom right before the return statement
-  if (loading) return <p>Loading team members...</p>;
+  // Bail out before rendering anything else while the initial fetch is
+  // still in flight - members will be an empty array at this point, so
+  // without this check the "No team members found" empty state would
+  // flash briefly on every load
+  if (loading) return <p className="text-zinc-400">Loading team members...</p>;
 
   return (
     <div>
-      <h2>Team Availability Overview</h2>
-      
-      {/* Grid layout: automatically creates responsive cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+      <h2 className="text-2xl font-bold text-white mb-4">Team Availability Overview</h2>
+
+      {/* Responsive card grid - auto-fill lets the browser fit as many
+          300px-minimum columns as the container width allows, so this
+          reflows on its own without a manual breakpoint per screen size */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {members.length === 0 ? (
-          <p>No team members found.</p>
+          <p className="text-zinc-400">No team members found.</p>
         ) : (
           members.map(member => (
-            <TeamMemberCard 
-              key={member._id} 
-              member={member} 
-              // FIXED: No extra functional attributes passed. TypeScript is happy!
+            <TeamMemberCard
+              key={member._id}
+              member={member}
             />
           ))
         )}

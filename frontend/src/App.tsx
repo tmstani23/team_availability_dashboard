@@ -3,6 +3,7 @@ import LoginForm from './components/LoginForm';
 import ScheduleView from './components/ScheduleView';
 import ManageView from './components/ManageView';
 import AdminLayout from './components/AdminLayout';
+import DashboardLayout from './components/DashboardLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import { TeamProvider } from './context/TeamContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -40,7 +41,12 @@ function App() {
         {/* Layer 1: must be logged in (any role) */}
         <Route element={<ProtectedRoute />}>
           <Route element={<ProtectedLayout />}>
-            <Route path="/dashboard" element={<ScheduleView />} />
+            {/* DashboardLayout wraps ScheduleView the same way AdminLayout
+                wraps its children below - gives /dashboard an AppHeader
+                (title + logout) without touching ScheduleView itself */}
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<ScheduleView />} />
+            </Route>
 
             {/* Layer 2: nested inside layer 1, adds an admin-only check
                 on top - a member hitting /admin/* bounces to /dashboard */}

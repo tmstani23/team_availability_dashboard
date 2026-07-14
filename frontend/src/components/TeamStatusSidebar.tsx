@@ -7,10 +7,11 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  // Consuming global state and actions from TeamContext
   const { members, toggleAvailability, viewerId, setViewer, viewerTimezone } = useTeam();
 
-
+  // Converts a member's timezone into their local clock time. Falls back to
+  // the browser's local time if the timezone string is invalid, so a bad
+  // value never crashes the render.
   const getLocalTime = (tz: string) => {
     try {
       return dayjs().tz(tz).format('hh:mm A');
@@ -20,57 +21,79 @@ const TeamStatusSidebar = () => {
   };
 
   return (
-    <div style={{
-      width: '280px', position: 'fixed', top: 0, right: 0, height: '100vh',
-      backgroundColor: '#1a1d20', borderLeft: '1px solid #343a40', color: '#fff',
-      padding: '1.5rem', boxSizing: 'border-box', overflowY: 'auto', zIndex: 1000
-    }}>
-      <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid #343a40', paddingBottom: '1rem' }}>
-        <label style={{ display: 'block', fontSize: '0.8rem', color: '#888', marginBottom: '0.5rem' }}>
+    // Sits in-flow inside the w-[280px] column ScheduleView reserves for it.
+    // h-full stretches it to match ScheduleGrid's height (flex row default
+    // align-items: stretch).
+    <div className="w-full h-full bg-zinc-900 border-l border-zinc-700 text-white p-6 box-border overflow-y-auto">
+      {/* Viewer selector - lets you pick which team member's perspective
+          you're viewing the dashboard as (see viewerId in TeamContext) */}
+      <div className="mb-6 border-b border-zinc-700 pb-4">
+        <label className="block text-xs text-zinc-500 mb-2">
           Simulating Active User:
         </label>
         <select
           value={viewerId || ''}
           onChange={(e) => setViewer(e.target.value)}
-          style={{ width: '100%', padding: '0.4rem', backgroundColor: '#2b3035', color: '#fff', border: '1px solid #495057', borderRadius: '4px' }}
+          className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-2 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
         >
           {members.map((m: any) => (
             <option key={m._id} value={m._id}>{m.name}</option>
           ))}
         </select>
-        <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '0.4rem' }}>
+        <div className="text-xs text-zinc-500 mt-2">
           Your local time: {getLocalTime(viewerTimezone)}
         </div>
       </div>
 
-      <h3 style={{ marginTop: 0, marginBottom: '1.2rem', fontSize: '1.1rem' }}>Live Availability</h3>
+      <h3 className="mt-0 mb-5 text-lg font-semibold">Live Availability</h3>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* Roster list - one card per team member, sorted in whatever order
+          they came back from the API (no client-side sort applied) */}
+      <div className="flex flex-col gap-4">
         {members.map((member: any) => {
+          // Highlights the card belonging to whichever member is currently
+          // selected in the viewer dropdown above
           const isSelf = member._id === viewerId;
           return (
-            <div key={member._id} style={{ backgroundColor: '#212529', padding: '0.8rem', borderRadius: '6px', border: isSelf ? '1px solid #0d6efd' : '1px solid #2b3035' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div
+              key={member._id}
+              className={`bg-zinc-800 p-3 rounded-md border ${
+                isSelf ? 'border-blue-500' : 'border-zinc-700/60'
+              }`}
+            >
+              {/* Top row: identity info on the left, status pill on the right */}
+              <div className="flex justify-between items-start">
                 <div>
-                  <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
-                    {member.name} {isSelf && <span style={{ color: '#0d6efd', fontSize: '0.8rem' }}>(You)</span>}
+                  <div className="font-bold text-sm">
+                    {member.name}{' '}
+                    {isSelf && <span className="text-blue-400 text-xs">(You)</span>}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: '#aaa' }}>{member.role}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#888' }}>🕒 {getLocalTime(member.timezone)}</div>
+                  <div className="text-xs text-zinc-400">{member.role}</div>
+                  <div className="text-xs text-zinc-500">🕒 {getLocalTime(member.timezone)}</div>
                 </div>
-                <span style={{
-                  fontSize: '0.75rem', padding: '3px 8px', borderRadius: '12px', fontWeight: '500',
-                  backgroundColor: member.isAvailable ? 'rgba(40, 167, 69, 0.15)' : 'rgba(220, 53, 69, 0.15)',
-                  color: member.isAvailable ? '#28a745' : '#dc3545', border: `1px solid ${member.isAvailable ? '#28a745' : '#dc3545'}`
-                }}>
+                {/* Color-coded availability pill - green/red styling driven
+                    entirely by member.isAvailable */}
+                <span
+                  className={`text-xs px-2 py-1 rounded-full font-medium border ${
+                    member.isAvailable
+                      ? 'bg-green-500/15 text-green-400 border-green-500'
+                      : 'bg-red-500/15 text-red-400 border-red-500'
+                  }`}
+                >
                   {member.isAvailable ? 'Available' : 'Away'}
                 </span>
               </div>
 
+              {/* Only the selected viewer can toggle their own availability -
+                  other members' cards show status but no action button */}
               {isSelf && (
                 <button
                   onClick={() => toggleAvailability(member._id, member.isAvailable)}
-                  style={{ width: '100%', marginTop: '0.6rem', padding: '4px', backgroundColor: member.isAvailable ? '#dc3545' : '#28a745', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 'bold' }}
+                  className={`w-full mt-2 py-1 rounded text-xs font-bold text-white transition-colors ${
+                    member.isAvailable
+                      ? 'bg-red-600 hover:bg-red-500'
+                      : 'bg-green-600 hover:bg-green-500'
+                  }`}
                 >
                   Set as {member.isAvailable ? '🔴 Away' : '🟢 Available'}
                 </button>

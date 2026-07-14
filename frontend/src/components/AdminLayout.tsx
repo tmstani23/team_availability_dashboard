@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import AppHeader from './AppHeader';
 
 const AdminLayout = () => {
   // NavLink's isActive reflects whether `to` matches the current URL
@@ -11,18 +12,20 @@ const AdminLayout = () => {
 
   return (
     <div className="min-h-screen bg-[#0f1112] text-white">
-      {/* Header + tabs stay padded and width-constrained */}
-      <div className="p-4">
-        <h1 className="text-3xl font-bold mb-4">Team Availability Dashboard</h1>
-        <nav className="flex gap-2 border-b border-zinc-700 mb-4">
-          <NavLink to="/admin/schedule" className={tabClass}>
-            Schedule
-          </NavLink>
-          <NavLink to="/admin/manage" className={tabClass}>
-            Manage
-          </NavLink>
-        </nav>
-      </div>
+      {/* Tabs built here (they're admin-specific) and handed to AppHeader's
+          generic tabs slot - AppHeader itself doesn't know about routes */}
+      <AppHeader
+        tabs={
+          <>
+            <NavLink to="/admin/schedule" className={tabClass}>
+              Schedule
+            </NavLink>
+            <NavLink to="/admin/manage" className={tabClass}>
+              Manage
+            </NavLink>
+          </>
+        }
+      />
 
       {/* Outside the padded wrapper - ScheduleView needs full-width control
           for its own flex row (main content + fixed-width sidebar) */}
