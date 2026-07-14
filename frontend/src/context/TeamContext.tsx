@@ -22,10 +22,11 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshAllData = async () => {
     try {
-      // credentials: 'include' is required on every request now - these
-      // routes are protected by the authenticate middleware, which reads
-      // the httpOnly session cookie. Without this option, the browser
-      // won't attach that cookie cross-origin, and every request 401s.
+      // credentials: 'include' is required on every request now - both
+      // /api/team-members and /api/work-shifts are behind the authenticate
+      // middleware, which reads the httpOnly session cookie. Without this
+      // option, the browser won't attach that cookie cross-origin, and
+      // every request 401s.
       const [membersRes, shiftsRes] = await Promise.all([
         fetch('http://localhost:5000/api/team-members', { credentials: 'include' }),
         fetch('http://localhost:5000/api/work-shifts', { credentials: 'include' })

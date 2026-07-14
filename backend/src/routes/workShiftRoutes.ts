@@ -1,10 +1,13 @@
 import express from 'express';
 import WorkShiftModel from '../models/WorkShift';
+import { authenticate, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
-// GET all shifts or by date (for grid display)
-router.get('/', async (req, res) => {
+// GET all shifts or by date (for grid display) - authenticate only (no
+// requireAdmin), since every logged-in member needs to see the schedule
+// grid, not just admins
+router.get('/', authenticate, async (req, res) => {
   try {
     const { date } = req.query;
     // Type guard: ensure date is a string before using it in the query
@@ -16,8 +19,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST new shift
-router.post('/', async (req, res) => {
+// POST new shift - admin only for now. No self-service caller exists yet;
+// when break logging lands, a member creating their own break will need a
+// separate route that trusts the JWT's teamMemberId (same pattern as
+// PATCH /api/team-members/:id/status), not open access here
+router.post('/', authenticate, requireAdmin, async (req, res) => {
   try {
     const newShift = new WorkShiftModel(req.body);
     await newShift.save();
@@ -27,8 +33,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT update shift
-router.put('/:id', async (req, res) => {
+// PUT update shift - admin only
+router.put('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     const updated = await WorkShiftModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json(updated);
@@ -37,8 +43,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE shift
-router.delete('/:id', async (req, res) => {
+// DELETE shift - admin only
+router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
     await WorkShiftModel.findByIdAndDelete(req.params.id);
     res.json({ message: 'Shift deleted' });
