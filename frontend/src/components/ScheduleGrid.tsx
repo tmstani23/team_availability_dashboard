@@ -1,12 +1,6 @@
 import { useEffect } from 'react';
 import { useTeam } from '../context/TeamContext';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-
-// Ensure plugins are registered for the `.tz` function to work
-dayjs.extend(utc);
-dayjs.extend(timezone);
+import { resolveHourRangeInViewerTz, getCurrentShiftForMember } from '../utils/scheduleTime';
 
 const ScheduleGrid = () => {
   // 1. Read live synchronizing records directly out of our global application context hook stream
@@ -60,36 +54,16 @@ const ScheduleGrid = () => {
 
               {/* Team Member Rows - centered with padding */}
               {members.map(member => {
-                // Find all shifts that belong to this specific member
-                const memberShifts = shifts.filter(s => {
-                  const shiftMemberId = typeof s.teamMemberId === 'string' ? s.teamMemberId : s.teamMemberId?._id;
-                  return String(shiftMemberId) === String(member._id);
-                });
+
 
                 // OPTIMIZATION STEP 1: Find the actual valid shift for this row BEFORE the 24-hour loop
-                const currentShift = memberShifts.find(s => s.date && s.startTime && s.endTime);
+                const currentShift = getCurrentShiftForMember(member._id, shifts);
 
-                // OPTIMIZATION STEP 2: Pre-calculate the hour boundaries in the viewer's timezone
-                let startHourViewer = -1;
-                let endHourViewer = -1;
-                let isOvernight = false;
-
-                if (currentShift && member.timezone && viewerTimezone) {
-                  // Create dayjs objects localized to the member's home timezone
-                  const startInMemberTz = dayjs.tz(`${currentShift.date} ${currentShift.startTime}`, member.timezone);
-                  const endInMemberTz = dayjs.tz(`${currentShift.date} ${currentShift.endTime}`, member.timezone);
-
-                  // Shift those times into the viewer's timezone
-                  const startInViewerTz = startInMemberTz.tz(viewerTimezone);
-                  const endInViewerTz = endInMemberTz.tz(viewerTimezone);
-
-                  // Extract just the hour numbers (0-23) for easy comparison in the map loop
-                  startHourViewer = startInViewerTz.hour();
-                  endHourViewer = endInViewerTz.hour();
-
-                  // If the end hour is smaller than the start hour, the shift crosses midnight
-                  isOvernight = endHourViewer < startHourViewer;
-                }
+                // OPTIMIZATION STEP 2: Resolve the shift's hour boundaries into the viewer's timezone.
+                // All the dayjs conversion logic that used to live inline here now lives in one
+                // shared, testable function — hourRange is null when there's nothing to show
+                // (no shift, missing timezone, etc), so we don't need a -1 sentinel anymore.
+                const hourRange = resolveHourRangeInViewerTz(currentShift, member.timezone, viewerTimezone);
 
                 return (
                   <div
@@ -104,15 +78,16 @@ const ScheduleGrid = () => {
 
                     {/* Map out the 24 hour blocks */}
                     {hours.map(hour => {
-                      // Check if the current column's hour falls within the calculated shift range
-                      const isHourActive = currentShift && (
-                        isOvernight
-                          ? (hour >= startHourViewer || hour < endHourViewer)
-                          : (hour >= startHourViewer && hour < endHourViewer)
+                      // Check if the current column's hour falls within the calculated shift range.
+                      // hourRange being null (no valid shift) makes isHourActive false automatically.
+                      const isHourActive = hourRange && (
+                        hourRange.isOvernight
+                          ? (hour >= hourRange.startHour || hour < hourRange.endHour)
+                          : (hour >= hourRange.startHour && hour < hourRange.endHour)
                       );
 
                       // Only stamp the text labels into the very first hour block of the shift
-                      const isStartOfShift = currentShift && hour === startHourViewer;
+                      const isStartOfShift = hourRange && hour === hourRange.startHour;
 
                       return (
                         <div
@@ -121,7 +96,7 @@ const ScheduleGrid = () => {
                             ${isHourActive ? 'bg-emerald-600 text-white font-medium' : 'bg-zinc-800 text-zinc-500'}
                           `}
                         >
-                          {isStartOfShift && (
+                          {isStartOfShift && currentShift && (
                             <>
                               <div>{currentShift.startTime}</div>
                               <div className="text-[10px] opacity-75">to</div>
