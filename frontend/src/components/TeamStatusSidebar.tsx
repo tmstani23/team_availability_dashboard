@@ -1,4 +1,5 @@
 import { useTeam } from '../context/TeamContext';
+import { getCurrentShiftForMember } from '../utils/scheduleTime';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -7,7 +8,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  const { members, toggleAvailability, viewerId, setViewer, viewerTimezone } = useTeam();
+  const { members, shifts, toggleAvailability, viewerId, setViewer, viewerTimezone } = useTeam();
 
   // Converts a member's timezone into their local clock time. Falls back to
   // the browser's local time if the timezone string is invalid, so a bad
@@ -23,7 +24,8 @@ const TeamStatusSidebar = () => {
   return (
     // Sits in-flow inside the w-[280px] column ScheduleView reserves for it.
     // h-full stretches it to match ScheduleGrid's height (flex row default
-    // align-items: stretch).
+    // align-items: stretch). Back to sole occupant of this column now that
+    // TeamHoursPanel has moved to the main column above ScheduleGrid.
     <div className="w-full h-full bg-zinc-900 border-l border-zinc-700 text-white p-6 box-border overflow-y-auto">
       {/* Viewer selector - lets you pick which team member's perspective
           you're viewing the dashboard as (see viewerId in TeamContext) */}
@@ -54,6 +56,14 @@ const TeamStatusSidebar = () => {
           // Highlights the card belonging to whichever member is currently
           // selected in the viewer dropdown above
           const isSelf = member._id === viewerId;
+
+          // Their registered shift, in THEIR OWN local time - no timezone
+          // conversion here, unlike the grid/chips. startTime/endTime are
+          // already stored as that member's own wall-clock HH:mm, so this
+          // answers "what does their day actually look like to them"
+          // without needing to flip the viewer dropdown to become them.
+          const currentShift = getCurrentShiftForMember(member._id, shifts);
+
           return (
             <div
               key={member._id}
@@ -70,6 +80,11 @@ const TeamStatusSidebar = () => {
                   </div>
                   <div className="text-xs text-zinc-400">{member.role}</div>
                   <div className="text-xs text-zinc-500">🕒 {getLocalTime(member.timezone)}</div>
+                  {currentShift && (
+                    <div className="text-xs text-zinc-500">
+                      Working {currentShift.startTime}–{currentShift.endTime}
+                    </div>
+                  )}
                 </div>
                 {/* Color-coded availability pill - green/red styling driven
                     entirely by member.isAvailable */}

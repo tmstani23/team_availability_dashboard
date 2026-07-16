@@ -68,3 +68,38 @@ export function getCurrentShiftForMember(
 
   return memberShifts.find(s => s.date && s.startTime && s.endTime);
 }
+
+/**
+ * True if `hour` (0-23) falls inside a HourRange, accounting for overnight
+ * wraparound. Extracted from ScheduleGrid's inline isHourActive ternary so
+ * the overlap row can reuse the exact same "is this member active at this
+ * hour" check instead of a second copy that could drift out of sync.
+ */
+export function isHourInRange(range: HourRange | null, hour: number): boolean {
+  if (!range) return false;
+  return range.isOvernight
+    ? (hour >= range.startHour || hour < range.endHour)
+    : (hour >= range.startHour && hour < range.endHour);
+}
+
+/**
+ * Formats a 0-23 hour into a compact "9AM" / "5PM" style label. Exported on
+ * its own (not just inlined in formatHourRange) so ScheduleGrid can label
+ * its start-of-shift cell with the same viewer-tz-correct format instead of
+ * printing the shift's raw, unconverted startTime/endTime strings.
+ */
+export function formatHourLabel(hour: number): string {
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}${period}`;
+}
+
+/**
+ * Renders a HourRange as a compact "9AM–5PM" style label for list/summary
+ * views (TeamHoursPanel, ScheduleGrid). Only formats whole hours - HourRange
+ * doesn't carry minutes, so this matches the precision that's available.
+ */
+export function formatHourRange(range: HourRange | null): string {
+  if (!range) return 'No shift';
+  return `${formatHourLabel(range.startHour)}–${formatHourLabel(range.endHour)}`;
+}
