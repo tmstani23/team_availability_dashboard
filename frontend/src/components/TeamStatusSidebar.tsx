@@ -1,5 +1,7 @@
 import { useTeam } from '../context/TeamContext';
+import { useAuth } from '../context/AuthContext';
 import { getCurrentShiftForMember } from '../utils/scheduleTime';
+import { STATUS_META, SETTABLE_STATUSES } from '../utils/status';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -8,7 +10,11 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  const { members, shifts, toggleAvailability, viewerId, setViewer, viewerTimezone } = useTeam();
+  const { members, shifts, setStatus, viewerId, setViewer, viewerTimezone } = useTeam();
+  // Who is ACTUALLY logged in (real auth), as opposed to viewerId which only
+  // simulates whose timezone the grid previews. Editing your own status keys
+  // off this - it must match the identity the backend trusts from the JWT.
+  const { teamMemberId } = useAuth();
 
   // Converts a member's timezone into their local clock time. Falls back to
   // the browser's local time if the timezone string is invalid, so a bad
@@ -53,9 +59,11 @@ const TeamStatusSidebar = () => {
           they came back from the API (no client-side sort applied) */}
       <div className="flex flex-col gap-4">
         {members.map((member: any) => {
-          // Highlights the card belonging to whichever member is currently
-          // selected in the viewer dropdown above
-          const isSelf = member._id === viewerId;
+          // True only for the actually logged-in member. Drives both the
+          // "(You)" marker and whether the status picker is shown - you can
+          // only set your own status, matching the backend's JWT check.
+          // Note: this is real-auth identity, NOT the viewerId simulation.
+          const isSelf = member._id === teamMemberId;
 
           // Their registered shift, in THEIR OWN local time - no timezone
           // conversion here, unlike the grid/chips. startTime/endTime are
@@ -86,32 +94,42 @@ const TeamStatusSidebar = () => {
                     </div>
                   )}
                 </div>
-                {/* Color-coded availability pill - green/red styling driven
-                    entirely by member.isAvailable */}
+                {/* Color-coded status pill. Label + colors come from the
+                    shared STATUS_META map, so this and the admin card can't
+                    drift apart. Fallback to 'offline' guards against a member
+                    whose status somehow isn't set (e.g. pre-migration data). */}
                 <span
                   className={`text-xs px-2 py-1 rounded-full font-medium border ${
-                    member.isAvailable
-                      ? 'bg-green-500/15 text-green-400 border-green-500'
-                      : 'bg-red-500/15 text-red-400 border-red-500'
+                    (STATUS_META[member.status] ?? STATUS_META.offline).pill
                   }`}
                 >
-                  {member.isAvailable ? 'Available' : 'Away'}
+                  {(STATUS_META[member.status] ?? STATUS_META.offline).label}
                 </span>
               </div>
 
-              {/* Only the selected viewer can toggle their own availability -
-                  other members' cards show status but no action button */}
+              {/* Only the logged-in member can set their own status - other
+                  members' cards show the pill but no picker. Four states have
+                  no single "opposite," so this is a row of explicit choices
+                  rather than one toggle. offline isn't here: it's derived
+                  from schedule, not hand-set (see SETTABLE_STATUSES). */}
               {isSelf && (
-                <button
-                  onClick={() => toggleAvailability(member._id, member.isAvailable)}
-                  className={`w-full mt-2 py-1 rounded text-xs font-bold text-white transition-colors ${
-                    member.isAvailable
-                      ? 'bg-red-600 hover:bg-red-500'
-                      : 'bg-green-600 hover:bg-green-500'
-                  }`}
-                >
-                  Set as {member.isAvailable ? '🔴 Away' : '🟢 Available'}
-                </button>
+                <div className="mt-2 grid grid-cols-3 gap-1">
+                  {SETTABLE_STATUSES.map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setStatus(member._id, s)}
+                      // Highlight the current choice with its own status color;
+                      // the others stay neutral until clicked.
+                      className={`py-1 rounded text-xs font-medium border transition-colors ${
+                        member.status === s
+                          ? STATUS_META[s].pill
+                          : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
+                      }`}
+                    >
+                      {STATUS_META[s].short}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           );

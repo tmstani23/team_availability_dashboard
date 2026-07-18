@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/TeamContext';
+import { STATUS_META, SETTABLE_STATUSES } from '../utils/status';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -18,7 +19,7 @@ const inputClass =
   'w-full bg-zinc-800 text-white border border-zinc-700 rounded px-3 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
 
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
-  const { toggleAvailability, deleteMember, refreshAllData } = useTeam();
+  const { setStatus, deleteMember, refreshAllData } = useTeam();
 
   // Profile edit (name/timezone/job role) - PUT /:id
   const [isEditing, setIsEditing] = useState(false);
@@ -43,10 +44,6 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   const [newPassword, setNewPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
   const [passwordError, setPasswordError] = useState(false);
-
-  const handleToggle = () => {
-    toggleAvailability(member._id, member.isAvailable);
-  };
 
   const handleSaveEdit = async () => {
     setEditError('');
@@ -229,20 +226,31 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
             <p><span className="text-zinc-400">Timezone:</span> {member.timezone}</p>
             <p>
               <span className="text-zinc-400">Status:</span>{' '}
-              <span className={member.isAvailable ? 'text-green-400' : 'text-red-400'}>
-                {member.isAvailable ? 'Available' : 'Not Available'}
-              </span>
+              {/* Full label from the shared meta; fallback guards pre-migration
+                  records with no status set. */}
+              <span>{(STATUS_META[member.status] ?? STATUS_META.offline).label}</span>
             </p>
             <p><span className="text-zinc-400">Current Local Time:</span> {dayjs().tz(member.timezone).format('hh:mm A')}</p>
           </div>
 
           <div className="flex flex-wrap gap-2 mt-3">
-            <button
-              onClick={handleToggle}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
-            >
-              Toggle Availability
-            </button>
+            {/* Status picker - an admin can set any member's status here
+                (backend allows admin override). Same shared STATUS_META /
+                SETTABLE_STATUSES the sidebar uses. offline is omitted because
+                it's schedule-derived, not hand-set. */}
+            {SETTABLE_STATUSES.map(s => (
+              <button
+                key={s}
+                onClick={() => setStatus(member._id, s)}
+                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                  member.status === s
+                    ? STATUS_META[s].pill
+                    : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
+                }`}
+              >
+                {STATUS_META[s].short}
+              </button>
+            ))}
             <button
               onClick={() => setIsEditing(true)}
               className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"

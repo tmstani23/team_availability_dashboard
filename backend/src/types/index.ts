@@ -1,10 +1,14 @@
+// The four presence states a member can be in. Stored as a plain string in
+// Mongo (readable in the DB, no lookup table). 'active' is the old "available".
+export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline';
+
 // Core type for a team member - defines the shape of data for availability
 export interface TeamMember {
   _id?: string;
   name: string;
   timezone: string;
   role: string;
-  isAvailable: boolean;
+  status: TeamMemberStatus;  // replaces the old isAvailable boolean
   lastUpdated: Date;
 }
 

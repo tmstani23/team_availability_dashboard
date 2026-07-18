@@ -3,10 +3,16 @@ import TeamMemberModel from '../models/TeamMember';
 import UserBadgeModel from '../models/UserBadge';
 import bcrypt from 'bcrypt';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { TeamMemberStatus } from '../types';
 
 const router = express.Router();
 
 const SALT_ROUNDS = 10; // standard cost factor - higher is slower but more brute-force resistant
+
+// The values the /status route will accept. 'offline' is intentionally NOT
+// settable by hand - it's derived from a member's schedule (see nextSteps.md),
+// so allowing it here would let a client set a state the UI is meant to compute.
+const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
 
 // GET all team members - any logged-in user can view the roster/schedule,
 // not just admins, since this powers the ScheduleGrid everyone needs to see
@@ -129,15 +135,20 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'You can only update your own status' });
     }
 
-    const { isAvailable } = req.body;
+    const { status } = req.body;
 
-    if (typeof isAvailable !== 'boolean') {
-      return res.status(400).json({ message: 'isAvailable must be a boolean' });
+    // Reject anything that isn't one of the hand-settable states. This guards
+    // the DB even though the model's enum would also catch it - a clear 400
+    // here beats a generic validation error surfacing from the save.
+    if (!SETTABLE_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: `status must be one of: ${SETTABLE_STATUSES.join(', ')}`
+      });
     }
 
     const updated = await TeamMemberModel.findByIdAndUpdate(
       req.params.id,
-      { isAvailable, lastUpdated: new Date() },
+      { status, lastUpdated: new Date() },
       { new: true }
     );
 

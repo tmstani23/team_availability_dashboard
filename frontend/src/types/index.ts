@@ -1,9 +1,14 @@
+// The four presence states. Mirrors the backend type. 'active' is the old
+// "available"; 'offline' is schedule-derived (see nextSteps.md), the rest
+// are set by hand.
+export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline';
+
 export interface TeamMember {
   _id: string;
   name: string;
   timezone: string;
   role: string;
-  isAvailable: boolean;
+  status: TeamMemberStatus;  // replaces the old isAvailable boolean
   lastUpdated: string;
 }
 
@@ -31,7 +36,9 @@ export interface TeamContextType {
   members: any[];
   shifts: any[];
   loading: boolean;
-  toggleAvailability: (id: string, currentStatus: boolean) => Promise<void>;
+  // Sets a member's presence to an explicit state (not a toggle - four
+  // states have no single "opposite"). Only active/away/dnd are settable.
+  setStatus: (id: string, status: TeamMemberStatus) => Promise<void>;
   deleteMember: (id: string) => Promise<void>;
   refreshAllData: () => Promise<void>;
   handleMemberAdded: () => void;

@@ -1,6 +1,40 @@
 # Next Steps
 
-Last updated: 2026-07-15
+Last updated: 2026-07-18
+
+## COMPLETED — Status enum: manual layer (7/18/2026)
+- TeamMember.isAvailable Boolean replaced with a status enum
+  ('active' | 'away' | 'dnd' | 'offline'), default 'active', in both the
+  backend model/types and frontend types
+- Backend PATCH /:id/status validates against SETTABLE_STATUSES
+  (active/away/dnd only) - 'offline' is rejected because it's schedule-derived
+- migrateStatus.ts backfilled existing members (true->active, false->away)
+  via the raw collection, then dropped isAvailable - HAS BEEN RUN against dev DB
+- Shared frontend/src/utils/status.ts holds STATUS_META (label/short/pill) and
+  SETTABLE_STATUSES, used by both TeamStatusSidebar and TeamMemberCard so
+  colors/labels can't drift
+- toggleAvailability -> setStatus(id, status) in TeamContext, keeping the
+  optimistic-update + rollback pattern (rollback now captures previous status
+  first, since a 4-state value has no single "opposite" to flip back to)
+- Sidebar's "can I edit this" now keys off real auth (AuthContext.teamMemberId),
+  not the viewerId simulation - resolves half the "two sources of who am I"
+  tech-debt item. Single toggle replaced with a 3-button picker.
+- STILL TODO for this feature: the derived-offline layer - lands with #1
+  below (needs reliable "on shift right now"). Until then, no member ever
+  auto-shows offline; status is manual-only.
+
+## COMPLETED — Meeting Overlap Finder (by 7/18/2026)
+- TeamHoursPanel built: checkbox chip per member with hours converted to the
+  viewer's timezone, reusing getCurrentShiftForMember + resolveHourRangeInViewerTz
+- Selection state lifted into ScheduleView.tsx as useState<string[]>, passed
+  down as props to both TeamHoursPanel and ScheduleGrid (not TeamContext, per
+  the original decision below)
+- isHourInRange(range, hour) extracted into scheduleTime.ts, handling overnight
+  wraparound - shared by both ScheduleGrid's member rows and the new overlap row
+- Overlap row added to ScheduleGrid: renders only when selectedIds is non-empty,
+  lit for an hour only when every selected member's hourRange covers it
+- Matches the component-shape decisions recorded below (no new backend route,
+  open to any authenticated user, one shared grid template for pixel alignment)
 
 ## COMPLETED — scheduleTime.ts extraction (7/15/2026)
 - Pulled the inline dayjs timezone-conversion block out of ScheduleGrid.tsx
@@ -58,14 +92,28 @@ Last updated: 2026-07-15
 
 ### Live Availability Sidebar: 4-state status, not binary
 - PRD calls for Active / Away / Do Not Disturb / Offline
-- Currently TeamMember.isAvailable is a plain Boolean (Available/Away
-  only) - would need to become a status enum
-- Not started - noted in README as [In Progress]
+- IN PROGRESS (started 7/18): TeamMember.isAvailable Boolean is being
+  replaced with a status enum ('active' | 'away' | 'dnd' | 'offline'),
+  default 'active'. Manual picker only offers active/away/dnd.
+- OFFLINE IS DERIVED, NOT MANUAL: a member shows offline automatically
+  when they are not on shift at their own current local time. It is
+  computed per-member from that member's own schedule + own local clock,
+  independent of who is viewing. So the manual picker deliberately omits
+  offline. This "on shift right now" check is deferred to #1 below -
+  see the note there - because it needs reliable current-shift
+  resolution, which getCurrentShiftForMember does not yet provide.
+- The combined model (derived offline overrides stored manual when off
+  shift; on shift shows stored status, default active) is the goal;
+  we're building the manual layer now and the derived-offline layer with #1.
+- Status editing identity: the picker's "can I edit this?" check is wired
+  to real auth (AuthContext.teamMemberId), NOT the vestigial viewerId
+  dropdown. Backend already enforces this via the JWT. This resolves half
+  of the "two sources of who am I" tech-debt item in one pass.
 
-### Meeting Overlap Finder: component shape + access
+### Meeting Overlap Finder: component shape + access — IMPLEMENTED, see COMPLETED above
 - No new context needed - the shared timezone/shift-lookup logic already
   lives in scheduleTime.ts as plain functions, callable from anywhere
-- Selection state (which members are checked) will live in ScheduleView.tsx
+- Selection state (which members are checked) lives in ScheduleView.tsx
   (the existing shared parent of ScheduleGrid + TeamStatusSidebar, used by
   both /dashboard and /admin/schedule) as local useState, passed down as
   props - not lifted into TeamContext, since it's local UI state for this
@@ -90,41 +138,42 @@ Last updated: 2026-07-15
 
 ## NEXT STEPS (priority order)
 
-1. Build TeamHoursPanel - checkbox list + per-member hours in viewer's
-   timezone, using getCurrentShiftForMember + resolveHourRangeInViewerTz
-   from scheduleTime.ts
+0. PREREQUISITE for #1: land basic tests first (Vitest + RTL for
+   scheduleTime.ts's pure functions - overnight, no-shift, cross-tz,
+   isHourInRange). Gives a regression net for getCurrentShiftForMember
+   before #1 rewrites it. Do this before starting #1.
 
-2. Lift selection state into ScheduleView.tsx (useState<string[]>) and
-   pass down to both TeamHoursPanel and ScheduleGrid
-
-3. Add the overlap row to ScheduleGrid - for each hour, active only if
-   every selected member's hourRange covers that hour (needs an
-   isHourInRange(range, hour) helper - can extract from ScheduleGrid's
-   existing isHourActive ternary so both the grid and the overlap row
-   share one implementation instead of two copies that could drift)
-
-4. Recurring day-of-week shift model rework (see Decisions above) - bigger
+1. Recurring day-of-week shift model rework (see Decisions above) - bigger
    lift, own session: schema change, backend routes, getCurrentShiftForMember
    internals changing from "find one shift" to "resolve today's recurring
-   shift"
+   shift". BLOCKED until #0 (basic tests) lands.
+   - INCLUDES the derived-offline layer for the status feature: once
+     getCurrentShiftForMember reliably resolves "today's shift," add an
+     "is member on shift at their own current local time" check. Off shift
+     -> derived offline (overrides stored status); on shift -> stored
+     status (default active). Until this lands, members never auto-show as
+     offline - status is manual-only (active/away/dnd).
 
-5. Break logging UI - depends on #4 landing first (or at minimum depends
+2. Break logging UI - depends on #1 landing first (or at minimum depends
    on shift-lookup handling more than one shift-like record per member per
-   day, which #4 also requires)
+   day, which #1 also requires)
 
-6. Live Availability Sidebar: 4-state status (Active/Away/DND/Offline) -
-   replace TeamMember.isAvailable Boolean with a status enum, update
-   toggleAvailability in TeamContext and the sidebar UI
+3. Live Availability Sidebar: 4-state status - MANUAL LAYER DONE (see
+   COMPLETED at top). Only the derived-offline layer remains, and it's
+   folded into #1 above (needs reliable "on shift now"). Nothing to do
+   here as a standalone step anymore.
 
 ## KNOWN ISSUES / TECH DEBT (tracked in README, repeated here for visibility)
 
 - TeamStatusSidebar's "Simulating Active User" dropdown (TeamContext.
-  viewerId) is leftover pre-auth code, disconnected from real auth
-  (AuthContext.teamMemberId) - two sources of "who am I." Not fixed.
+  viewerId) is leftover pre-auth code. PARTIALLY reconciled (7/18): status
+  editing now keys off real auth (AuthContext.teamMemberId), but viewerId
+  still drives which timezone the grid renders in. Fully retiring the
+  dropdown (or pointing the tz preview at real auth) is still outstanding.
 - ScheduleGrid (via getCurrentShiftForMember) only resolves one shift per
   member (first match found, no date filtering) - invisible today since
   each member has exactly one shift record, but will surface as soon as
-  #4 or #5 above land.
+  #1 or #2 above land.
 - AddTeamMemberForm inputs use bg-zinc-800 on a bg-zinc-800 card - relies
   on border alone for separation. Deferred to design pass.
 - Broader design pass (button colors, card polish) - explicitly deferred,

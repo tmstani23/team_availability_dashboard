@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type { TeamContextType } from '../types';
+import type { TeamContextType, TeamMemberStatus } from '../types';
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
@@ -53,13 +53,18 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     refreshAllData();
   };
 
-  const toggleAvailability = async (id: string, currentStatus: boolean) => {
-    // Optimistic update: flip the UI immediately rather than waiting on the
-    // network round-trip, so toggling status feels instant. If the request
-    // fails below, we roll this back to the real value.
+  const setStatus = async (id: string, newStatus: TeamMemberStatus) => {
+    // Capture the current status BEFORE the optimistic update so we have a
+    // real value to roll back to if the request fails. (The old toggle could
+    // derive the rollback value by flipping a boolean; with four states we
+    // have to remember what it actually was.)
+    const previousStatus = members.find(member => member._id === id)?.status;
+
+    // Optimistic update: change the UI immediately rather than waiting on the
+    // network round-trip, so setting status feels instant.
     setMembers(prev =>
       prev.map(member =>
-        member._id === id ? { ...member, isAvailable: !currentStatus } : member
+        member._id === id ? { ...member, status: newStatus } : member
       )
     );
 
@@ -68,15 +73,15 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ isAvailable: !currentStatus })
+        body: JSON.stringify({ status: newStatus })
       });
     } catch (err) {
-      console.error('Failed to toggle availability:', err);
-      // Rollback: request failed, so revert the optimistic flip back to
-      // what it actually was before this function ran
+      console.error('Failed to set status:', err);
+      // Rollback: request failed, so revert to whatever the status was
+      // before this function ran.
       setMembers(prev =>
         prev.map(member =>
-          member._id === id ? { ...member, isAvailable: currentStatus } : member
+          member._id === id ? { ...member, status: previousStatus } : member
         )
       );
     }
@@ -102,7 +107,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, shifts, loading, toggleAvailability, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
+    <TeamContext.Provider value={{ members, shifts, loading, setStatus, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
       {children}
     </TeamContext.Provider>
   );
