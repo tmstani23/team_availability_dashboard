@@ -2,6 +2,14 @@
 
 A real-time workspace visualizer built to coordinate global engineering workflows across multiple time zones. This application eliminates manual time arithmetic by serving as a single source of truth for distributed team schedules, live availability statuses, and meeting windows.
 
+## Goals & Design Constraints
+
+The problem this solves: coordinating engineers across time zones normally means manual time-zone math, spreadsheet tracking, and constant "are they online right now?" messaging. This dashboard replaces all of that with one live, visual source of truth. Three constraints drive the design:
+
+- **Zero manual math** — all UTC / time-zone conversion stays hidden behind the UI; a user only ever sees their own local clock.
+- **High scannability** — a manager or teammate should be able to read someone's current availability in under two seconds.
+- **Data accuracy across date boundaries** — the backend must correctly handle shifts that cross midnight into the viewer's next calendar day.
+
 ## Core Project Features
 
 Status legend: Implemented / In Progress / Planned
@@ -27,34 +35,19 @@ The application is structured as a full-stack system utilizing strict type-safet
 
 ## Known Issues / Technical Debt
 
-*   **Two sources of "who am I" (partially reconciled).** `TeamStatusSidebar`'s "Simulating Active User" dropdown (`TeamContext.viewerId`) predates real authentication. Status *editing* now keys off the real logged-in identity (`AuthContext.teamMemberId`), so that half is fixed — but `viewerId` still drives which timezone the grid renders in. Fully retiring the dropdown (or pointing the timezone preview at real auth too) is still outstanding.
-*   **`ScheduleGrid` only renders one shift per member.** Its shift lookup grabs the first matching `WorkShift` record and stops — no date filtering, no handling of multiple shifts. This has been invisible so far because each member has only ever had one shift record. It will surface as soon as either break logging or day-of-week recurrence lands, since both introduce a second shift-like record per member per day.
-*   **`AddTeamMemberForm` contrast issue.** Form inputs use the same background color as the card they sit on (`bg-zinc-800` on `bg-zinc-800`), relying on border alone for separation. Deferred to a broader design pass.
-*   **No visual polish pass yet.** Button colors and general card styling are functional but not deliberately designed; deferred until core features (break logging, overlap finder, recurring shifts) are further along.
+The working list lives in `nextSteps.md` (canonical). Current items include the lingering `viewerId` timezone-preview dependency, `ScheduleGrid` resolving only one shift per member, and deferred design polish.
 
 ## Testing
 
-Status legend: Implemented / In Progress / Planned
-
-- Planned: Backend unit tests (Jest) for auth logic — password hashing,
-  JWT verification, role-gated middleware — since this is the highest-risk
-  code in the project.
-- Planned: Integration tests for API routes (team-members, work-shifts, auth)
-  using Supertest.
-- Planned: Frontend component tests (Vitest + React Testing Library) for
-  ScheduleGrid's timezone conversion logic, given its complexity and how
-  easy it is to silently break (see: the 09:00–09:05 shift bug caught during
-  manual QA).
-- Not planned at this scope: E2E testing (Playwright/Cypress) — would be a
-  reasonable next step if this grows beyond a portfolio project.
+Unit tests for `scheduleTime.ts`'s pure functions are implemented (Vitest, node env) — run `npm test` (watch) or `npm run test:run` (once) from `frontend/`. Remaining planned coverage — backend auth (Jest), API routes (Supertest), and `ScheduleGrid` component tests (Vitest + React Testing Library) — is tracked in `nextSteps.md`.
 
 ## Project Directory Layout
 
 ```text
 team_availability_dashboard/
-├── backend/    # Express + TypeScript API, Mongoose models
-├── frontend/   # React + Vite + TypeScript client
-├── project_goals.md
+├── backend/       # Express + TypeScript API, Mongoose models
+├── frontend/      # React + Vite + TypeScript client
+├── nextSteps.md   # working task tracker / decisions log
 └── README.md
 ```
 

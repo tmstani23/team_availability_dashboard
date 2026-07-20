@@ -1,6 +1,21 @@
 # Next Steps
 
-Last updated: 2026-07-18
+Last updated: 2026-07-20
+
+## COMPLETED — scheduleTime.ts unit tests (7/20/2026)
+- Vitest installed (frontend devDep, node env - no RTL/jsdom, these are
+  pure functions). Scripts: `npm test` (watch), `npm run test:run` (once).
+- New frontend/src/utils/scheduleTime.test.ts - 20 tests, all passing:
+  - resolveHourRangeInViewerTz: null guards, same-tz passthrough, cross-tz
+    (NY->LA), cross-tz overnight wraparound (Tokyo->LA), and a DST-sensitive
+    pair (NY->UTC in Jan vs Jul) proving the conversion respects the date
+  - isHourInRange: null, normal half-open [start,end), overnight OR-logic
+  - getCurrentShiftForMember: string vs populated teamMemberId, no-match,
+    incomplete-record skip - locks CURRENT "first valid shift" behavior as a
+    regression net before #1 rewrites it
+  - formatHourLabel / formatHourRange: midnight/noon, null placeholder
+- Expected tz values were verified against real dayjs output before writing.
+- This clears the #0 prerequisite; #1 is now unblocked.
 
 ## COMPLETED — Status enum: manual layer (7/18/2026)
 - TeamMember.isAvailable Boolean replaced with a status enum
@@ -138,15 +153,15 @@ Last updated: 2026-07-18
 
 ## NEXT STEPS (priority order)
 
-0. PREREQUISITE for #1: land basic tests first (Vitest + RTL for
-   scheduleTime.ts's pure functions - overnight, no-shift, cross-tz,
-   isHourInRange). Gives a regression net for getCurrentShiftForMember
-   before #1 rewrites it. Do this before starting #1.
+0. DONE (7/20) - basic Vitest tests for scheduleTime.ts's pure functions
+   landed (see COMPLETED at top). This was the prerequisite for #1, so #1
+   is now unblocked.
 
 1. Recurring day-of-week shift model rework (see Decisions above) - bigger
    lift, own session: schema change, backend routes, getCurrentShiftForMember
    internals changing from "find one shift" to "resolve today's recurring
-   shift". BLOCKED until #0 (basic tests) lands.
+   shift". #0 (basic tests) landed 7/20, so this is unblocked - good
+   candidate for a fresh session / higher-effort model.
    - INCLUDES the derived-offline layer for the status feature: once
      getCurrentShiftForMember reliably resolves "today's shift," add an
      "is member on shift at their own current local time" check. Off shift
@@ -163,7 +178,7 @@ Last updated: 2026-07-18
    folded into #1 above (needs reliable "on shift now"). Nothing to do
    here as a standalone step anymore.
 
-## KNOWN ISSUES / TECH DEBT (tracked in README, repeated here for visibility)
+## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
 - TeamStatusSidebar's "Simulating Active User" dropdown (TeamContext.
   viewerId) is leftover pre-auth code. PARTIALLY reconciled (7/18): status
@@ -183,9 +198,17 @@ Last updated: 2026-07-18
 - syncIndexes() is dev-only by design - before deploying, manually audit
   indexes (Compass or a real migration) instead of relying on this running
   automatically
-- Testing is currently 0% implemented (Jest for auth logic, Supertest for
-  API routes, Vitest+RTL for scheduleTime.ts's pure functions - now more
-  straightforward to test given the extraction) - own workstream
+- Test coverage roadmap (scheduleTime.ts pure-function tests DONE 7/20;
+  the rest still planned, own workstream):
+  - Backend unit tests (Jest) for auth logic - password hashing, JWT
+    verification, role-gated middleware (highest-risk code in the project)
+  - Integration tests for API routes (team-members, work-shifts, auth)
+    via Supertest
+  - Frontend component tests (Vitest + React Testing Library) for
+    ScheduleGrid's timezone conversion - complex and easy to silently
+    break (see the 09:00-09:05 shift bug caught in manual QA)
+  - Not planned at this scope: E2E (Playwright/Cypress) - reasonable next
+    step only if this grows past a portfolio project
 - Audit .env / secrets handling for production config (JWT_SECRET
   rotation, MONGODB_URI, CORS origin currently hardcoded to
   localhost:5173)

@@ -24,3 +24,17 @@ all future git operations until Tim deletes them manually in Explorer.
 - Flag architectural/complex work as candidates for a fresh session or
   higher-effort model
 - Task tracking lives in `nextSteps.md`
+
+## Voice & style for responses and comments
+
+- Write conversationally and plainly, as if explaining to a capable
+  developer who is new to the specific topic at hand. Use everyday
+  language; reach for technical terms only where they're actually needed,
+  and briefly say what they mean the first time.
+- Explain the "why" and the non-obvious parts, not just the "what".
+- Keep it brief — short and clear beats thorough and long. If a sentence
+  can be cut without losing meaning, cut it.
+- Code comments follow the same voice: plain-language explanations of what
+  a piece of code is doing and why, especially anything tricky or easy to
+  get wrong. Assume the reader may be new to the concept.
+- No emojis.
