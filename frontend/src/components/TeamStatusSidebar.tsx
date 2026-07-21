@@ -2,6 +2,7 @@ import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentShiftForMember } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES } from '../utils/status';
+import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -10,7 +11,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  const { members, shifts, setStatus, viewerId, setViewer, viewerTimezone } = useTeam();
+  const { members, recurringShifts, setStatus, viewerId, setViewer, viewerTimezone } = useTeam();
   // Who is ACTUALLY logged in (real auth), as opposed to viewerId which only
   // simulates whose timezone the grid previews. Editing your own status keys
   // off this - it must match the identity the backend trusts from the JWT.
@@ -58,19 +59,17 @@ const TeamStatusSidebar = () => {
       {/* Roster list - one card per team member, sorted in whatever order
           they came back from the API (no client-side sort applied) */}
       <div className="flex flex-col gap-4">
-        {members.map((member: any) => {
+        {members.map((member: TeamMember) => {
           // True only for the actually logged-in member. Drives both the
           // "(You)" marker and whether the status picker is shown - you can
           // only set your own status, matching the backend's JWT check.
           // Note: this is real-auth identity, NOT the viewerId simulation.
           const isSelf = member._id === teamMemberId;
 
-          // Their registered shift, in THEIR OWN local time - no timezone
-          // conversion here, unlike the grid/chips. startTime/endTime are
-          // already stored as that member's own wall-clock HH:mm, so this
-          // answers "what does their day actually look like to them"
-          // without needing to flip the viewer dropdown to become them.
-          const currentShift = getCurrentShiftForMember(member._id, shifts);
+          // Today's standing shift, resolved by the member's own weekday. Shown
+          // in their own local time (no viewer-tz conversion, unlike the grid) -
+          // this answers "what does their day look like to them."
+          const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
 
           return (
             <div
@@ -88,10 +87,16 @@ const TeamStatusSidebar = () => {
                   </div>
                   <div className="text-xs text-zinc-400">{member.role}</div>
                   <div className="text-xs text-zinc-500">🕒 {getLocalTime(member.timezone)}</div>
-                  {currentShift && (
+                  {/* Standing hours for today in the member's own local time.
+                      'unset' shows nothing here - the "set your hours" prompt
+                      for that case lands with the first-run gate (nextSteps). */}
+                  {resolution.state === 'working' && (
                     <div className="text-xs text-zinc-500">
-                      Working {currentShift.startTime}–{currentShift.endTime}
+                      Working {resolution.startTime}–{resolution.endTime}
                     </div>
+                  )}
+                  {resolution.state === 'off' && (
+                    <div className="text-xs text-zinc-500">Off today</div>
                   )}
                 </div>
                 {/* Color-coded status pill. Label + colors come from the

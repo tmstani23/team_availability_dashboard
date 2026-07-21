@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type { TeamContextType, TeamMemberStatus } from '../types';
+import type { TeamContextType, TeamMemberStatus, RecurringShift } from '../types';
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
 export const TeamProvider = ({ children }: { children: ReactNode }) => {
-  const [shifts, setShifts] = useState<any[]>([]);
+  // Standing weekly hours (one record per member per weekday) - replaced the
+  // old work-shifts fetch. One-off dated breaks (WorkShift) come back as their
+  // own fetch when the break-logging UI lands (see nextSteps.md).
+  const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,19 +26,19 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   const refreshAllData = async () => {
     try {
       // credentials: 'include' is required on every request now - both
-      // /api/team-members and /api/work-shifts are behind the authenticate
+      // /api/team-members and /api/recurring-shifts are behind the authenticate
       // middleware, which reads the httpOnly session cookie. Without this
       // option, the browser won't attach that cookie cross-origin, and
       // every request 401s.
       const [membersRes, shiftsRes] = await Promise.all([
         fetch('http://localhost:5000/api/team-members', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/work-shifts', { credentials: 'include' })
+        fetch('http://localhost:5000/api/recurring-shifts', { credentials: 'include' })
       ]);
       const membersData = await membersRes.json();
       const shiftsData = await shiftsRes.json();
 
       setMembers(Array.isArray(membersData) ? membersData : []);
-      setShifts(Array.isArray(shiftsData) ? shiftsData : []);
+      setRecurringShifts(Array.isArray(shiftsData) ? shiftsData : []);
     } catch (err) {
       console.error("Failed to load data:", err);
     } finally {
@@ -107,7 +110,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, shifts, loading, setStatus, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
+    <TeamContext.Provider value={{ members, recurringShifts, loading, setStatus, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
       {children}
     </TeamContext.Provider>
   );

@@ -8,7 +8,7 @@ interface ScheduleGridProps {
 
 const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
   // 1. Read live synchronizing records directly out of our global application context hook stream
-  const { members, shifts, loading, viewerTimezone } = useTeam();
+  const { members, recurringShifts, loading, viewerTimezone } = useTeam();
 
   // Hours from 6:00 AM to 5:00 AM next day
   const hours = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
@@ -39,9 +39,12 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
           // recomputing it separately for the member rows and the overlap
           // row below - both now read from this same array.
           const memberRows = members.map((member: any) => {
-            const currentShift = getCurrentShiftForMember(member._id, shifts);
-            const hourRange = resolveHourRangeInViewerTz(currentShift, member.timezone, viewerTimezone);
-            return { member, currentShift, hourRange };
+            // Resolve today's standing shift by the member's OWN weekday, then
+            // convert to the viewer's tz. off / unset yield a null range, so
+            // those rows render empty.
+            const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
+            const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
+            return { member, hourRange };
           });
 
           // Only checked members (from TeamHoursPanel) count toward overlap.
@@ -97,9 +100,9 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                         `}
                       >
                         {/* formatHourLabel uses the viewer-converted hourRange,
-                            not currentShift's raw startTime/endTime - those are
-                            in the member's home timezone and would mislabel
-                            this cell whenever member tz != viewer tz. */}
+                            not the shift's raw startTime/endTime - those are in
+                            the member's home timezone and would mislabel this
+                            cell whenever member tz != viewer tz. */}
                         {isStartOfShift && hourRange && formatHourLabel(hourRange.startHour)}
                         {isEndOfShift && hourRange && !isStartOfShift && formatHourLabel(hourRange.endHour)}
                       </div>

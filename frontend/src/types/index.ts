@@ -50,7 +50,7 @@ export interface RecurringShift {
 
 export interface TeamContextType {
   members: any[];
-  shifts: any[];
+  recurringShifts: RecurringShift[];
   loading: boolean;
   // Sets a member's presence to an explicit state (not a toggle - four
   // states have no single "opposite"). Only active/away/dnd are settable.

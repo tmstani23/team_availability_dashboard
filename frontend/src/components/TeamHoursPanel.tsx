@@ -12,7 +12,7 @@ interface TeamHoursPanelProps {
 // Selection state itself lives in ScheduleView (the shared parent), not here
 // or in TeamContext - see nextSteps.md for why.
 const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
-  const { members, shifts, viewerTimezone } = useTeam();
+  const { members, recurringShifts, viewerTimezone } = useTeam();
 
   return (
     // Now sits above ScheduleGrid in the wide main column (moved out of the
@@ -25,8 +25,8 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
         {members.map((member: any) => {
           // Same lookup ScheduleGrid uses for its rows - reused here so the
           // hours shown in this checklist always match what the grid renders.
-          const currentShift = getCurrentShiftForMember(member._id, shifts);
-          const hourRange = resolveHourRangeInViewerTz(currentShift, member.timezone, viewerTimezone);
+          const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
+          const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
           const isChecked = selectedIds.includes(member._id);
 
           return (
@@ -46,7 +46,13 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
               />
               <span>{member.name}</span>
               <span className="text-xs text-zinc-500 whitespace-nowrap">
-                {formatHourRange(hourRange)}
+                {/* off / unset have no hourRange, so distinguish them here
+                    rather than showing a generic "No shift" for both. */}
+                {resolution.state === 'off'
+                  ? 'Off'
+                  : resolution.state === 'unset'
+                    ? 'Not set'
+                    : formatHourRange(hourRange)}
               </span>
             </label>
           );

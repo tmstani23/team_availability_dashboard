@@ -8,7 +8,7 @@ The problem this solves: coordinating engineers across time zones normally means
 
 - **Zero manual math** — all UTC / time-zone conversion stays hidden behind the UI; a user only ever sees their own local clock.
 - **High scannability** — a manager or teammate should be able to read someone's current availability in under two seconds.
-- **Data accuracy across date boundaries** — the backend must correctly handle shifts that cross midnight into the viewer's next calendar day.
+- **Data accuracy across date boundaries** — shifts that cross midnight are handled correctly, and because this is a *presence* tool ("who is on shift right now?"), each member's current shift resolves against **their own local weekday**, not the viewer's. Near midnight two people can be on different weekdays; the grid shows each person's real current day, then converts the hours to the viewer's clock.
 
 ## Core Project Features
 
@@ -20,7 +20,7 @@ Status legend: Implemented / In Progress / Planned
 *   **[In Progress] Live Availability Sidebar**: A real-time tracking panel showing each team member's current status, with a "viewer" selector to preview the dashboard as different team members. *(`TeamMember.status` is now a four-value enum — `active` / `away` / `dnd` / `offline` (default `active`) — replacing the old `isAvailable` boolean. Members set their own status via a picker (active/away/dnd); status editing is keyed to real auth (`AuthContext.teamMemberId`). `offline` is not hand-settable: it will be derived automatically from a member's schedule (offline when they're off-shift at their own local time), which depends on the Shift Data Model Rework below and lands with it.)*
 *   **[Implemented] Meeting Overlap Finder**: A scheduling tool that scans selected team profiles and highlights the exact hours where everyone shares overlapping availability. Checkbox picker (`TeamHoursPanel`) drives an overlap row in `ScheduleGrid`, lit only where every selected member is active. Pure frontend against existing shift data — no model changes.
 *   **[In Progress] Asynchronous Break Logging**: Quick-action controls allowing workers to log temporary absences. *(Data model supports an `isBreak` flag on shifts, but no UI control exists yet, and `ScheduleGrid` currently can't render a break and a standing shift on the same day for the same person — see Known Issues below. Design direction: breaks stay as separate, dated, one-off `WorkShift` records, distinct from the recurring shift described below.)*
-*   **[In Progress] Recurring Weekly Hours**: Each person's normal working hours will recur by day-of-week (e.g. "Monday: 9–5", "Friday: 9–1") rather than requiring the same shift every day. *(Design decision made, not yet implemented. This does not include a visual weekly view — the grid will keep showing one day at a time, and which shift displays resolves automatically based on the current day of week. Currently a member's shift is a single date-based record set once at creation time.)*
+*   **[Implemented] Recurring Weekly Hours**: Each person's normal working hours recur by day-of-week (e.g. "Monday: 9–5", "Friday: 9–1") rather than requiring the same shift every day. The grid still shows one day at a time; which shift displays resolves automatically from the member's own current weekday via `RecurringShift` records. No visual weekly view. *(Backend model, migration, routes, and the frontend read path are all live. Remaining: the per-member hours-editing page and first-run setup prompt — see `nextSteps.md`.)*
 
 ## Technical Architecture
 
@@ -30,12 +30,12 @@ The application is structured as a full-stack system utilizing strict type-safet
 *   **[Implemented] Backend Engine**: Express.js server logic built entirely in TypeScript, processing incoming payloads, middleware routing, and timezone normalization.
 *   **[Implemented] Data Validation Layer**: Strict type-checking utilizing structural interfaces to eliminate data corruption across timezone offsets and scheduling arrays.
 *   **[Implemented] Storage Layer**: MongoDB collections using indexed Mongoose schemas.
-*   **[Planned] Shift Data Model Rework**: `WorkShift` currently keys standing shifts off a calendar `date`. Planned change: standing shifts key off `dayOfWeek` instead (recurring, not date-bound), while breaks keep a real `date` since they're inherently one-off events. This is a schema-level fork, not just a UI change — `ScheduleGrid`'s shift lookup will need to resolve "today's recurring shift" and "today's break(s), if any" as two separate lookups instead of one.
+*   **[Implemented] Shift Data Model Rework**: Standing shifts now key off `dayOfWeek` (recurring, not date-bound) in a separate `RecurringShift` model, while one-off breaks keep a real `date` on `WorkShift`. The frontend reads recurring shifts through `scheduleTime.ts`, which resolves each member's current-weekday shift into three states (working / off / unset). Layering "today's break(s)" on top of the standing shift arrives with the break-logging UI — see `nextSteps.md`.
 *   **[Planned] Live Sync**: WebSockets (Socket.io) to broadcast state transitions instantly to all active client sessions without manual browser reloads. *(Not yet implemented — the dashboard currently refetches data after each action rather than pushing live updates.)*
 
 ## Known Issues / Technical Debt
 
-The working list lives in `nextSteps.md` (canonical). Current items include the lingering `viewerId` timezone-preview dependency, `ScheduleGrid` resolving only one shift per member, and deferred design polish.
+The working list lives in `nextSteps.md` (canonical). Current items include the lingering `viewerId` timezone-preview dependency, `ScheduleGrid` still resolving a single standing shift per member (breaks layered on the same day come with the break-logging UI), and deferred design polish.
 
 ## Testing
 

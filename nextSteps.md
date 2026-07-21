@@ -2,6 +2,42 @@
 
 Last updated: 2026-07-21
 
+## COMPLETED — Recurring shifts frontend cutover: Phase 4 + 5 (7/21)
+- scheduleTime.ts rewritten:
+  - getCurrentShiftForMember now takes (memberId, recurringShifts,
+    memberTimezone, now?) and returns a ShiftResolution tagged union -
+    { working, startTime, endTime } | { off } | { unset }. Replaces the old
+    "first WorkShift record or undefined," which couldn't tell off from unset.
+  - Resolves by the MEMBER'S OWN local weekday (now.tz(memberTz).day()), NOT
+    the viewer's. DECISION (resolves the open sub-decision): this is a presence
+    tool, so each row answers "on shift where they are." Viewer-tz conversion
+    is a separate later step, so we keep both - correct day AND viewer's clock.
+    Near a date boundary a member can legitimately show a different weekday
+    than the viewer.
+  - resolveHourRangeInViewerTz now takes the ShiftResolution and anchors its
+    tz conversion to TODAY's date in the member's tz (now?), since recurring
+    records carry no date and dropping it would break the DST offset. Returns
+    null for anything that isn't a working shift.
+  - isHourInRange / formatHourLabel / formatHourRange unchanged.
+- scheduleTime.test.ts rewritten: `now` pinned per test for determinism; kept
+  the cross-tz, overnight, and DST-pair cases; added working/off/unset and the
+  member's-own-weekday boundary case (Fri 23:00 UTC = Sat in Tokyo). Verified
+  all assertions pass against the compiled source (Vitest can't run in the
+  Linux sandbox - node_modules has Windows/native bindings - so run
+  `npm run test:run` on Windows to confirm; logic was checked via a
+  compiled-JS harness, 31/31 green).
+- TeamContext: swapped the /api/work-shifts fetch for /api/recurring-shifts;
+  exposes `recurringShifts: RecurringShift[]` (was `shifts: any[]`). This is
+  the FE cutover the migration was waiting on - old date-based WorkShift
+  records can now be dropped from the dev DB whenever convenient.
+- Repointed ScheduleGrid, TeamHoursPanel, TeamStatusSidebar to the new API.
+  Panel chips now show Off / Not set (not a generic "No shift"); sidebar shows
+  "Off today" for off days; unset shows nothing yet (its CTA is Phase 7).
+- tsc -b is clean. Bycatch fix: TeamStatusSidebar's roster map was typed
+  `member: any`, which tripped TS7053 on STATUS_META[member.status] (a
+  pre-existing error, present on HEAD - build was red before this). Typed it
+  as TeamMember. Callable out into its own commit if you'd rather.
+
 ## COMPLETED — Recurring shifts backend: model + migration + routes (7/21)
 - New RecurringShift model: one record per member per dayOfWeek (0=Sun..6=Sat),
   optional startTime/endTime, isOff flag, unique index {teamMemberId,
@@ -213,24 +249,25 @@ Last updated: 2026-07-21
    landed (see COMPLETED at top). This was the prerequisite for #1, so #1
    is now unblocked.
 
-1. Recurring day-of-week shift rework - BACKEND DONE 7/21 (see COMPLETED at
-   top). Remaining phases, in order:
-   - Phase 4 (NEXT - own session + higher-effort model): rewrite
-     frontend/src/utils/scheduleTime.ts. getCurrentShiftForMember goes from
-     "first shift record" to "resolve today's dayOfWeek RecurringShift" and
-     must distinguish working / off / unset. resolveHourRangeInViewerTz must
-     anchor its tz conversion to TODAY's date (recurring records carry no date;
-     dropping the date breaks DST). Rewrite scheduleTime.test.ts to match (keep
-     the cross-tz / overnight / DST cases). Open sub-decision: whose "today"
-     defines the grid's day - the viewer's, or each member's own local weekday.
-     Data shape: GET /api/recurring-shifts returns a flat array of
-     { _id, teamMemberId, dayOfWeek, startTime?, endTime?, isOff }.
-   - Phase 5: TeamContext fetches /api/recurring-shifts; point ScheduleGrid,
-     TeamHoursPanel, TeamStatusSidebar at it; then drop the old WorkShifts.
-   - Phases 6-8: hours page (/profile/hours) + strip AddTeamMemberForm time
-     fields; dismissible first-run gate + sidebar "hours not set" CTA;
-     derived-offline layer (off shift at member's own local time -> offline,
-     overrides stored status). Until #8, status stays manual-only.
+1. Recurring day-of-week shift rework - BACKEND + FRONTEND CUTOVER DONE 7/21
+   (Phases 1-5, see COMPLETED at top). Open sub-decision resolved: grid resolves
+   by each MEMBER'S own local weekday (presence tool). Remaining phases:
+   - Phase 6 (NEXT): per-member hours page. Self-service at /profile/hours,
+     admin reaches anyone at /members/:id/hours. 7 weekday rows, each a time
+     range or an "off" toggle; saves via PUT /api/team-members/:id/hours (whole
+     week at once - route already exists). Also strip the time fields from
+     AddTeamMemberForm (members start unset and fill their own week). NOTE: the
+     stale "creates an initial WorkShift" comment in AddTeamMemberForm is wrong
+     - POST /team-members no longer does that; clean it up here.
+   - Phase 7: dismissible first-run gate (zero standing-shift records on login
+     -> prompt, routes to /profile/hours or continues) + persistent "hours not
+     set" CTA on the member's own sidebar row (amber chip; the row already
+     knows "you + unset" - resolution.state === 'unset').
+   - Phase 8: derived-offline layer. Off shift at the member's own local time
+     -> show offline, overriding stored manual status. scheduleTime.ts already
+     exposes exactly the signal this needs (ShiftResolution: working/off/unset
+     by member's own weekday), so this is now mostly a display-layer change.
+     Until #8, status stays manual-only.
 
 2. Break logging UI - depends on #1 landing first (or at minimum depends
    on shift-lookup handling more than one shift-like record per member per
@@ -248,10 +285,11 @@ Last updated: 2026-07-21
   editing now keys off real auth (AuthContext.teamMemberId), but viewerId
   still drives which timezone the grid renders in. Fully retiring the
   dropdown (or pointing the tz preview at real auth) is still outstanding.
-- ScheduleGrid (via getCurrentShiftForMember) only resolves one shift per
-  member (first match found, no date filtering) - invisible today since
-  each member has exactly one shift record, but will surface as soon as
-  #1 or #2 above land.
+- ScheduleGrid (via getCurrentShiftForMember) resolves exactly one STANDING
+  shift per member (today's dayOfWeek RecurringShift). This is now correct for
+  standing hours, but layering a same-day break on top is still not handled -
+  that arrives with the break-logging UI (#2). getCurrentShiftForMember is the
+  single place that stitch will happen.
 - AddTeamMemberForm inputs use bg-zinc-800 on a bg-zinc-800 card - relies
   on border alone for separation. Deferred to design pass.
 - Broader design pass (button colors, card polish) - explicitly deferred,
