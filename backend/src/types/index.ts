@@ -22,7 +22,7 @@ export interface UserBadge {
   teamMemberId: string | TeamMember;
 }
 
-// Represents a work shift for the schedule matrix
+// One-off, dated events (breaks). Standing weekly hours live in RecurringShift.
 export interface WorkShift {
   _id?: string;
   teamMemberId: string | TeamMember;
@@ -31,4 +31,18 @@ export interface WorkShift {
   endTime: string;        // HH:mm
   isBreak: boolean;       // e.g. lunch or meeting
   notes?: string;
+}
+
+// 0 = Sunday .. 6 = Saturday (JS getDay() convention).
+export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+// A member's standing hours for one weekday; repeats weekly. isOff true = off
+// that day; times are omitted on off days.
+export interface RecurringShift {
+  _id?: string;
+  teamMemberId: string | TeamMember;
+  dayOfWeek: DayOfWeek;
+  startTime?: string;     // HH:mm, member's own local time - omitted on off days
+  endTime?: string;       // HH:mm
+  isOff: boolean;
 }

@@ -4,6 +4,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import workShiftRoutes from './routes/workShiftRoutes';
+import recurringShiftRoutes from './routes/recurringShiftRoutes';
 import authRoutes from './routes/authRoutes';
 import teamMembersRoutes from './routes/teamMembersRoutes';
 
@@ -45,6 +46,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/team-members', teamMembersRoutes);
 app.use('/api/work-shifts', workShiftRoutes);
+app.use('/api/recurring-shifts', recurringShiftRoutes);
 
 app.get('/', (req, res) => {
   res.send('Team Availability Backend is running');

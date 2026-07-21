@@ -53,4 +53,4 @@ team_availability_dashboard/
 
 ## Developer Notes
 
-This project is built manually using a "Human-in-the-Loop" development process. To maintain system security and full structural control, all local code modification, dependency installation, and directory creation are handled manually inside Visual Studio Code. Artificial intelligence is utilized strictly for non-autonomous architectural advice, syntax mentoring, and isolated structural task breakdowns.
+This project is built with a human-in-the-loop workflow. Features are implemented with AI assistance working directly in the codebase, but every change is reviewed via `git diff` before it is committed, and all commits, dependency installs, and branch operations stay manual (GitHub Desktop / terminal). Architectural decisions and their rationale are recorded in `nextSteps.md` as they're made, so the "why" behind the code is traceable rather than lost in chat history.

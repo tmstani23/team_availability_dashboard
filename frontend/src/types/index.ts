@@ -22,6 +22,8 @@ export interface UserBadge {
   // no password field here — it should never be sent to or stored in the frontend
 }
 
+// One-off, dated events (breaks). Standing weekly hours live in
+// RecurringShift. Mirrors the backend type - keep in sync.
 export interface WorkShift {
   _id?: string;
   teamMemberId: string | TeamMember;   // Can be populated or just the ID
@@ -30,6 +32,20 @@ export interface WorkShift {
   endTime: string;                     // HH:mm
   isBreak?: boolean;
   notes?: string;
+}
+
+// 0 = Sunday .. 6 = Saturday (JS getDay() convention).
+export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+// A member's standing hours for one weekday; repeats weekly. isOff true = off
+// that day. Mirrors the backend type - keep in sync.
+export interface RecurringShift {
+  _id?: string;
+  teamMemberId: string | TeamMember;
+  dayOfWeek: DayOfWeek;
+  startTime?: string;                  // HH:mm, member's own local time
+  endTime?: string;                    // HH:mm
+  isOff: boolean;
 }
 
 export interface TeamContextType {

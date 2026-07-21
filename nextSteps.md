@@ -1,6 +1,20 @@
 # Next Steps
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
+
+## COMPLETED — Recurring shifts backend: model + migration + routes (7/21)
+- New RecurringShift model: one record per member per dayOfWeek (0=Sun..6=Sat),
+  optional startTime/endTime, isOff flag, unique index {teamMemberId,
+  dayOfWeek}. Times required by the route only when isOff=false. RecurringShift
+  + DayOfWeek types mirrored in backend + frontend.
+- migrateToRecurringShifts.ts RAN against dev DB: seeded each member's old
+  standing hours Mon-Fri, weekends off (28 records / 4 members, verified).
+  Idempotent. Old WorkShift records LEFT in place - drop after FE cutover.
+- Routes: GET /api/recurring-shifts (bulk, any auth); GET+PUT
+  /api/team-members/:id/hours (self-or-admin whole-week replace, JWT-keyed like
+  /status). Removed initial-WorkShift creation from POST /team-members (members
+  now start unset).
+- Nothing reads RecurringShift yet - app behaves as before until Phase 4/5.
 
 ## COMPLETED — scheduleTime.ts unit tests (7/20/2026)
 - Vitest installed (frontend devDep, node env - no RTL/jsdom, these are
@@ -97,6 +111,48 @@ Last updated: 2026-07-20
   and every consumer (ScheduleGrid, TeamHoursPanel, overlap logic) picks
   up the new behavior automatically
 
+- OPEN QUESTIONS - RESOLVED 7/21/2026 (decisions below, ready for #1):
+  - "Day off" representation: EXPLICIT off record, via an isOff boolean
+    flag on the standing-shift record (NOT null start/end times). The flag
+    lets getCurrentShiftForMember cleanly distinguish three states:
+    on-shift (record with times), off-today (record, isOff:true), and
+    never-set-up (no record for that weekday). Null times would blur the
+    last two back together, defeating the point.
+  - Where hours are set: per-member hours page, 7 weekday rows, each a
+    time range or an "off" toggle. Self-service at /profile/hours; admin
+    reaches the same page for anyone at /members/:id/hours. (Confirmed -
+    no real alternative.)
+  - Self-service edit route: single PUT /api/team-members/:id/hours that
+    REPLACES the whole week at once (array of 7), not per-day PATCHes -
+    matches the "save my week" UX and avoids partial-update races. Auth
+    mirrors PATCH /:id/status: :id must equal the JWT's teamMemberId
+    unless the caller is admin. Breaks stay on the existing dated
+    /api/work-shifts routes - this route does not touch them.
+  - Initial seeding: SELF-SERVICE. Hours start empty at member creation
+    (AddTeamMemberForm stays lightweight, no weekday grid). Members fill
+    their own week after first login. Deliberately leans on the
+    "never set up" state, which the explicit-off decision makes cleanly
+    queryable (zero standing-shift records == unset).
+  - First-run gate (new, from the seeding decision): on login, if the
+    member has zero standing-shift records, show a DISMISSIBLE prompt.
+    Yes -> route to /profile/hours. No -> continue to the normal grid
+    with their hours rendered as "unset." Non-blocking by design - lives
+    as a conditional in the existing ProtectedRoute redirect spot, reuses
+    the hours page (no separate page).
+  - Persistent "set your hours" CTA (new): standing, obvious affordance on
+    the member's OWN row in TeamStatusSidebar - the row already keys off
+    AuthContext.teamMemberId, so "you, and unset" is a condition it
+    already knows. Prefer a highlighted/interactive "Hours not set" chip
+    (e.g. amber) over literal flashing; if any motion is used, respect
+    prefers-reduced-motion.
+
+- MIGRATION (falls out of the schema fork): existing members each have
+  one date-based WorkShift. Small dev DB, so simplest is to derive
+  dayOfWeek from the old shift's date, seed those hours Mon-Fri with
+  weekends isOff, then drop the old date-based records. Wipe-and-re-enter
+  is also acceptable given how little data there is. Make it a deliberate
+  call in the script, don't let it guess.
+
 ### Breaks stay separate from recurring shifts
 - Confirmed: breaks can't be recurring (a break is "something happening
   today," not a pattern), so they stay as dated, one-off WorkShift records
@@ -157,17 +213,24 @@ Last updated: 2026-07-20
    landed (see COMPLETED at top). This was the prerequisite for #1, so #1
    is now unblocked.
 
-1. Recurring day-of-week shift model rework (see Decisions above) - bigger
-   lift, own session: schema change, backend routes, getCurrentShiftForMember
-   internals changing from "find one shift" to "resolve today's recurring
-   shift". #0 (basic tests) landed 7/20, so this is unblocked - good
-   candidate for a fresh session / higher-effort model.
-   - INCLUDES the derived-offline layer for the status feature: once
-     getCurrentShiftForMember reliably resolves "today's shift," add an
-     "is member on shift at their own current local time" check. Off shift
-     -> derived offline (overrides stored status); on shift -> stored
-     status (default active). Until this lands, members never auto-show as
-     offline - status is manual-only (active/away/dnd).
+1. Recurring day-of-week shift rework - BACKEND DONE 7/21 (see COMPLETED at
+   top). Remaining phases, in order:
+   - Phase 4 (NEXT - own session + higher-effort model): rewrite
+     frontend/src/utils/scheduleTime.ts. getCurrentShiftForMember goes from
+     "first shift record" to "resolve today's dayOfWeek RecurringShift" and
+     must distinguish working / off / unset. resolveHourRangeInViewerTz must
+     anchor its tz conversion to TODAY's date (recurring records carry no date;
+     dropping the date breaks DST). Rewrite scheduleTime.test.ts to match (keep
+     the cross-tz / overnight / DST cases). Open sub-decision: whose "today"
+     defines the grid's day - the viewer's, or each member's own local weekday.
+     Data shape: GET /api/recurring-shifts returns a flat array of
+     { _id, teamMemberId, dayOfWeek, startTime?, endTime?, isOff }.
+   - Phase 5: TeamContext fetches /api/recurring-shifts; point ScheduleGrid,
+     TeamHoursPanel, TeamStatusSidebar at it; then drop the old WorkShifts.
+   - Phases 6-8: hours page (/profile/hours) + strip AddTeamMemberForm time
+     fields; dismissible first-run gate + sidebar "hours not set" CTA;
+     derived-offline layer (off shift at member's own local time -> offline,
+     overrides stored status). Until #8, status stays manual-only.
 
 2. Break logging UI - depends on #1 landing first (or at minimum depends
    on shift-lookup handling more than one shift-like record per member per

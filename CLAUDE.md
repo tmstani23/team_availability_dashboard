@@ -17,9 +17,11 @@ all future git operations until Tim deletes them manually in Explorer.
 
 ## Workflow preferences (summary — full version in project instructions)
 
-- Explain reasoning + brief overview before acting; apply changes via
-  Edit tool directly, not full-file chat pastes
-- Tim reviews via git diff / VS Code — don't paste code back
+- Build mode: implement changes directly via the Edit tool. Narrate as I
+  go, in segments, like walking a junior dev through it — which file, what
+  changed, how, and why — rather than one big explanation at the end or a
+  silent dump of edits
+- Tim reviews via git diff / VS Code — don't paste full files back in chat
 - Concise responses, skip fundamentals, comment non-obvious code
 - Flag architectural/complex work as candidates for a fresh session or
   higher-effort model
