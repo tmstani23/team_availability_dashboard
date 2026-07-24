@@ -6,12 +6,14 @@ import type { RecurringShift } from '../types';
 import {
   resolveHourRangeInViewerTz,
   getCurrentShiftForMember,
+  getScheduleState,
   isHourInRange,
   formatHourLabel,
   formatHourRange,
   type HourRange,
   type ShiftResolution,
 } from './scheduleTime';
+import { resolveDisplayStatus } from './status';
 
 // scheduleTime.ts extends these on import, but do it here too so this file
 // stands on its own if it ever runs in isolation. Extending twice is a no-op.
@@ -235,5 +237,110 @@ describe('formatHourLabel / formatHourRange', () => {
     // here would make the test fail.
     expect(formatHourRange({ startHour: 9, endHour: 17, isOvernight: false })).toBe('9AM–5PM');
     expect(formatHourRange(null)).toBe('No shift');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getScheduleState - the signal the derived-offline status layer runs on.
+// The important distinction under test: 'off-shift' is a POSITIVE claim that
+// someone isn't working, while 'unknown' means we have no hours on file and
+// can't say either way. Only the former is allowed to override what a member
+// set for themselves (see resolveDisplayStatus).
+// Note this is minute-accurate, unlike the hour-bucketed grid: finishing at
+// 17:00 means 17:30 is off shift, not still working.
+// ---------------------------------------------------------------------------
+describe('getScheduleState', () => {
+  // Reuses the module-level working() helper defined above.
+
+  it('is on-shift inside the hours, judged on the MEMBER own clock', () => {
+    // Noon in NY, working 09:00-17:00 NY time -> inside.
+    expect(getScheduleState(working('09:00', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+  });
+
+  it('is off-shift before start and at/after end on a working day', () => {
+    // Same pinned noon, but hours that do not contain it.
+    expect(getScheduleState(working('13:00', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+    expect(getScheduleState(working('06:00', '11:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+  });
+
+  it('treats the end time as exclusive, matching isHourInRange', () => {
+    // Finishing at 12:00 means 12:00 itself is already off - half-open
+    // [start, end). Starting at 12:00 is inside.
+    expect(getScheduleState(working('09:00', '12:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+    expect(getScheduleState(working('12:00', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+  });
+
+  it('handles an overnight shift as the union of both pieces', () => {
+    // 22:00-06:00 wraps midnight. Noon is squarely outside it; the wrap
+    // itself is covered by the Tokyo case below.
+    expect(getScheduleState(working('22:00', '06:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+    // Midnight in Tokyo, working 22:00-06:00 -> inside the after-midnight half.
+    const TOKYO_MIDNIGHT = dayjs.tz('2026-07-21 00:30', 'Asia/Tokyo');
+    expect(getScheduleState(working('22:00', '06:00'), 'Asia/Tokyo', TOKYO_MIDNIGHT))
+      .toBe('on-shift');
+  });
+
+  it('uses the MEMBER timezone, not the pinned moment own zone', () => {
+    // One instant: noon Monday in NY is 01:00 Tuesday in Tokyo. A Tokyo
+    // member working 09:00-17:00 is asleep, not at work - this is the case
+    // that breaks if the conversion is dropped.
+    expect(getScheduleState(working('09:00', '17:00'), 'Asia/Tokyo', MON_NOON_NY))
+      .toBe('off-shift');
+  });
+
+  it('maps an explicit off day to off-shift, and no record to unknown', () => {
+    // The whole point of the split: off is a fact, unset is an absence of one.
+    expect(getScheduleState({ state: 'off' }, 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+    expect(getScheduleState({ state: 'unset' }, 'America/New_York', MON_NOON_NY))
+      .toBe('unknown');
+  });
+
+  it('falls back to unknown rather than off-shift when data is unusable', () => {
+    // No timezone means we cannot place them on a clock, and a malformed time
+    // must not compare against NaN (silently false -> would read as off-shift).
+    expect(getScheduleState(working('09:00', '17:00'), undefined, MON_NOON_NY))
+      .toBe('unknown');
+    expect(getScheduleState(working('oops', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('unknown');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDisplayStatus - the precedence rule:
+//   off-shift -> offline (wins) -> otherwise stored -> otherwise away
+// ---------------------------------------------------------------------------
+describe('resolveDisplayStatus', () => {
+  it('derives offline when off shift, overriding whatever was set', () => {
+    // The stale-claim case: they clicked Active this morning and left.
+    expect(resolveDisplayStatus('active', 'off-shift')).toBe('offline');
+    expect(resolveDisplayStatus('dnd', 'off-shift')).toBe('offline');
+  });
+
+  it('respects the stored status while on shift', () => {
+    expect(resolveDisplayStatus('active', 'on-shift')).toBe('active');
+    expect(resolveDisplayStatus('dnd', 'on-shift')).toBe('dnd');
+    expect(resolveDisplayStatus('away', 'on-shift')).toBe('away');
+  });
+
+  it('does NOT derive offline when the schedule is unknown', () => {
+    // No hours on file is not evidence they are off - asserting offline here
+    // would be an unearned claim. The "Hours not set" label carries this.
+    expect(resolveDisplayStatus('active', 'unknown')).toBe('active');
+  });
+
+  it('falls back to away when nothing was ever set', () => {
+    // 'active' is a claim only the person can make, so an absent value means
+    // "no signal yet" - matching the TeamMember schema default.
+    expect(resolveDisplayStatus(undefined, 'unknown')).toBe('away');
+    expect(resolveDisplayStatus(undefined, 'on-shift')).toBe('away');
+    // ...but a known off-shift still wins over the fallback.
+    expect(resolveDisplayStatus(undefined, 'off-shift')).toBe('offline');
   });
 });

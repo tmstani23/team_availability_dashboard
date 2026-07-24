@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useTeam } from '../context/TeamContext';
-import dayjs from 'dayjs';
 
 const AddTeamMemberForm = () => {
   // Single state object for all fields (controlled inputs) rather than
@@ -10,9 +9,7 @@ const AddTeamMemberForm = () => {
     email: '',
     password: '',
     timezone: '',
-    role: '',
-    startTime: '',
-    endTime: ''
+    role: ''
   });
 
   const [error, setError] = useState('');
@@ -26,7 +23,7 @@ const AddTeamMemberForm = () => {
     setError('');
 
     // Client-side validation runs before any network call — cheap checks first
-    if (!formData.name || !formData.email || !formData.password || !formData.timezone || !formData.role || !formData.startTime || !formData.endTime) {
+    if (!formData.name || !formData.email || !formData.password || !formData.timezone || !formData.role) {
       setError('All fields are required');
       return;
     }
@@ -36,30 +33,11 @@ const AddTeamMemberForm = () => {
       return;
     }
 
-    // Parse times using an arbitrary fallback date string (ISO 8601 template format)
-    const start = dayjs(`2026-01-01T${formData.startTime}`);
-    const end = dayjs(`2026-01-01T${formData.endTime}`);
-
-    if (!start.isBefore(end)) {
-      setError('Start time must be before end time');
-      return;
-    }
-
-    // Ensure shifts only start and end exactly on the hour to match ScheduleGrid granularity
-    if (start.minute() !== 0 || end.minute() !== 0) {
-      setError('Shifts must start and end exactly on the hour (e.g., 09:00)');
-      return;
-    }
-
-    // shifts under 60 mins will completely disappear from the visual interface.
-    if (end.diff(start, 'minute') < 60) {
-      setError('Shift must be at least 1 hour long');
-      return;
-    }
-
     try {
-      // Backend creates the TeamMember AND an initial WorkShift in one call
-      // when startTime/endTime are present (see teamMembersRoutes.ts)
+      // Backend creates the TeamMember AND its login (UserBadge) in one call.
+      // No standing hours are created here - the member starts with zero
+      // RecurringShift records and fills their own week later via
+      // /profile/hours (see HoursEditor.tsx).
       const response = await fetch('http://localhost:5000/api/team-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,7 +59,7 @@ const AddTeamMemberForm = () => {
       handleMemberAdded();
 
       // Reset the form back to its initial empty shape after a successful add
-      setFormData({ name: '', email: '', password: '', timezone: '', role: '', startTime: '', endTime: '' });
+      setFormData({ name: '', email: '', password: '', timezone: '', role: '' });
       setError('');
     } catch (err) {
       // Logged for dev visibility in the console, in addition to being
@@ -163,30 +141,6 @@ const AddTeamMemberForm = () => {
             onChange={e => setFormData({ ...formData, role: e.target.value })}
             required
           />
-        </div>
-
-        {/* Shift Start/End are grouped side-by-side since they are logically paired */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-zinc-400 mb-1">Shift Start</label>
-            <input
-              type="time"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
-              value={formData.startTime}
-              onChange={e => setFormData({ ...formData, startTime: e.target.value })}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-zinc-400 mb-1">Shift End</label>
-            <input
-              type="time"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
-              value={formData.endTime}
-              onChange={e => setFormData({ ...formData, endTime: e.target.value })}
-              required
-            />
-          </div>
         </div>
 
         <button

@@ -31,7 +31,9 @@ export type ShiftResolution =
 // Pull a member id out of a RecurringShift whether teamMemberId came back as a
 // raw id string or a populated { _id } object. GET /api/recurring-shifts sends
 // it unpopulated (a string) today, but this keeps us safe if that changes.
-function shiftMemberId(shift: RecurringShift): string {
+// Exported so anything that needs "does this shift belong to member X" (e.g.
+// the first-run hours gate) reuses this instead of re-deriving it.
+export function shiftMemberId(shift: RecurringShift): string {
   const ref = shift.teamMemberId;
   return typeof ref === 'string' ? ref : String(ref?._id);
 }
@@ -69,6 +71,68 @@ export function getCurrentShiftForMember(
   if (!record.startTime || !record.endTime) return { state: 'unset' };
 
   return { state: 'working', startTime: record.startTime, endTime: record.endTime };
+}
+
+/**
+ * What we can say about a member's schedule RIGHT NOW:
+ *   - on-shift:  inside their standing hours, their own local time
+ *   - off-shift: a positive "they are not working now" - either today is an
+ *                explicit off day, or it's a working day and the clock is
+ *                outside the hours
+ *   - unknown:   no record for today (hours never set up) - we can't claim
+ *                either way, which is NOT the same as "not working"
+ * The unknown/off-shift split is the whole point: only off-shift is a fact
+ * strong enough to override what a member says about themselves.
+ */
+export type ScheduleState = 'on-shift' | 'off-shift' | 'unknown';
+
+// "HH:mm" -> minutes since midnight. Returns null on anything malformed so
+// callers can fall back rather than compare against NaN (which is silently
+// false for every operator and would read as "off shift").
+function toMinutes(time: string): number | null {
+  const [h, m] = time.split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+/**
+ * Whether a member is inside their standing hours right now, judged on THEIR
+ * own clock (same reasoning as getCurrentShiftForMember - this is a presence
+ * tool, so it's their day and their time that decide, not the viewer's).
+ *
+ * Minute-accurate rather than hour-bucketed: the grid renders whole-hour
+ * blocks, but presence shouldn't claim someone is working at 5:30 when they
+ * finish at 5:00. Half-open [start, end) matches isHourInRange, so the end
+ * time itself reads as off.
+ *
+ * `now` is injectable for tests.
+ */
+export function getScheduleState(
+  resolution: ShiftResolution,
+  memberTimezone: string | undefined,
+  now: Dayjs = dayjs()
+): ScheduleState {
+  if (resolution.state === 'unset') return 'unknown';
+  if (resolution.state === 'off') return 'off-shift';
+  // Without a timezone we can't place them on a clock, so we don't get to
+  // claim they're off - fall back to unknown.
+  if (!memberTimezone) return 'unknown';
+
+  const start = toMinutes(resolution.startTime);
+  const end = toMinutes(resolution.endTime);
+  if (start === null || end === null) return 'unknown';
+
+  const local = now.tz(memberTimezone);
+  const current = local.hour() * 60 + local.minute();
+
+  // end <= start means the shift wraps past midnight, so "inside" is the
+  // union of the two pieces rather than the span between them.
+  const inside =
+    end <= start
+      ? current >= start || current < end
+      : current >= start && current < end;
+
+  return inside ? 'on-shift' : 'off-shift';
 }
 
 /**

@@ -5,19 +5,21 @@ import ManageView from './components/ManageView';
 import AdminLayout from './components/AdminLayout';
 import DashboardLayout from './components/DashboardLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import HoursEditor from './components/HoursEditor';
+import FirstRunHoursGate from './components/FirstRunHoursGate';
 import { TeamProvider } from './context/TeamContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { homePathForRole } from './utils/routes';
 
 // Kicks an already-logged-in user off /login straight to their dashboard,
 // so a stale bookmark or back-navigation can't land them on the login form
 function LoginRoute() {
   const { isAuthenticated, loading, role } = useAuth();
   if (loading) return null;
-  // Admins land on /admin/schedule (which has the tab nav to reach Manage);
-  // /dashboard has no tabs, so sending an admin there would strand them
-  // with no way to reach the team overview / add-member tools
+  // homePathForRole encodes the "admins need the tabbed layout" rule - see
+  // that helper for why /dashboard is wrong for an admin
   if (isAuthenticated) {
-    return <Navigate to={role === 'admin' ? '/admin/schedule' : '/dashboard'} replace />;
+    return <Navigate to={homePathForRole(role)} replace />;
   }
   return <LoginForm />;
 }
@@ -28,6 +30,9 @@ function ProtectedLayout() {
   return (
     <TeamProvider>
       <Outlet />
+      {/* Floats over whichever protected page is active - needs both
+          AuthContext and TeamContext, both of which are live by this point */}
+      <FirstRunHoursGate />
     </TeamProvider>
   );
 }
@@ -48,6 +53,13 @@ function App() {
               <Route index element={<ScheduleView />} />
             </Route>
 
+            {/* Self-service hours, any authenticated role - reuses
+                DashboardLayout purely for its shell (AppHeader, no tabs),
+                nothing dashboard-specific about it */}
+            <Route path="/profile" element={<DashboardLayout />}>
+              <Route path="hours" element={<HoursEditor mode="self" />} />
+            </Route>
+
             {/* Layer 2: nested inside layer 1, adds an admin-only check
                 on top - a member hitting /admin/* bounces to /dashboard */}
             <Route element={<ProtectedRoute requiredRole="admin" />}>
@@ -56,6 +68,13 @@ function App() {
                 <Route path="manage" element={<ManageView />} />
                 {/* Bare /admin with no sub-path defaults to the schedule tab */}
                 <Route index element={<Navigate to="schedule" replace />} />
+              </Route>
+
+              {/* Admin editing a specific member's hours - not a tab under
+                  AdminLayout (it's not part of the Schedule/Manage flow),
+                  so it gets DashboardLayout's plain shell instead */}
+              <Route path="/members/:id/hours" element={<DashboardLayout />}>
+                <Route index element={<HoursEditor mode="admin" />} />
               </Route>
             </Route>
           </Route>

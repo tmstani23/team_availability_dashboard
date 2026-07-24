@@ -1,7 +1,8 @@
+import { Link } from 'react-router-dom';
 import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
-import { getCurrentShiftForMember } from '../utils/scheduleTime';
-import { STATUS_META, SETTABLE_STATUSES } from '../utils/status';
+import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
+import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -71,6 +72,16 @@ const TeamStatusSidebar = () => {
           // this answers "what does their day look like to them."
           const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
 
+          // What we know about their schedule right now, then what that means
+          // for the pill. displayStatus can differ from member.status - being
+          // off shift derives 'offline' over whatever they last set.
+          const scheduleState = getScheduleState(resolution, member.timezone);
+          const displayStatus = resolveDisplayStatus(member.status, scheduleState);
+          // True when the schedule is overriding a choice they actually made.
+          // Only worth surfacing on your own row, where clicking a status
+          // button otherwise looks like it silently did nothing.
+          const isOverridden = displayStatus !== member.status && !!member.status;
+
           return (
             <div
               key={member._id}
@@ -98,6 +109,25 @@ const TeamStatusSidebar = () => {
                   {resolution.state === 'off' && (
                     <div className="text-xs text-zinc-500">Off today</div>
                   )}
+                  {/* Unset needs to be VISIBLE for everyone, not just you -
+                      an empty row otherwise reads as "not working today,"
+                      which is a different fact entirely. What differs by
+                      person is only whether it's actionable: your own row
+                      gets the amber link to go fix it (the standing CTA once
+                      FirstRunHoursGate has been dismissed), everyone else's
+                      gets the same information as a plain label. */}
+                  {resolution.state === 'unset' && (
+                    isSelf ? (
+                      <Link
+                        to="/profile/hours"
+                        className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium border bg-amber-500/15 text-amber-400 border-amber-500 hover:bg-amber-500/25 transition-colors"
+                      >
+                        Hours not set — set now
+                      </Link>
+                    ) : (
+                      <div className="text-xs text-amber-400/80">Hours not set</div>
+                    )
+                  )}
                 </div>
                 {/* Color-coded status pill. Label + colors come from the
                     shared STATUS_META map, so this and the admin card can't
@@ -105,10 +135,10 @@ const TeamStatusSidebar = () => {
                     whose status somehow isn't set (e.g. pre-migration data). */}
                 <span
                   className={`text-xs px-2 py-1 rounded-full font-medium border ${
-                    (STATUS_META[member.status] ?? STATUS_META.offline).pill
+                    STATUS_META[displayStatus].pill
                   }`}
                 >
-                  {(STATUS_META[member.status] ?? STATUS_META.offline).label}
+                  {STATUS_META[displayStatus].label}
                 </span>
               </div>
 
@@ -118,23 +148,38 @@ const TeamStatusSidebar = () => {
                   rather than one toggle. offline isn't here: it's derived
                   from schedule, not hand-set (see SETTABLE_STATUSES). */}
               {isSelf && (
-                <div className="mt-2 grid grid-cols-3 gap-1">
-                  {SETTABLE_STATUSES.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setStatus(member._id, s)}
-                      // Highlight the current choice with its own status color;
-                      // the others stay neutral until clicked.
-                      className={`py-1 rounded text-xs font-medium border transition-colors ${
-                        member.status === s
-                          ? STATUS_META[s].pill
-                          : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
-                      }`}
-                    >
-                      {STATUS_META[s].short}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="mt-2 grid grid-cols-3 gap-1">
+                    {SETTABLE_STATUSES.map(s => (
+                      <button
+                        key={s}
+                        onClick={() => setStatus(member._id, s)}
+                        // Highlights what they STORED (member.status), not the
+                        // derived displayStatus - this row is "what did I
+                        // choose," and showing the derived value here would
+                        // make their actual choice invisible.
+                        className={`py-1 rounded text-xs font-medium border transition-colors ${
+                          member.status === s
+                            ? STATUS_META[s].pill
+                            : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
+                        }`}
+                      >
+                        {STATUS_META[s].short}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Without this, picking a status while off shift looks like
+                      the button did nothing - the pill above stays Offline.
+                      Explains that the choice IS saved and takes effect once
+                      they're back inside their hours. */}
+                  {isOverridden && (
+                    <div className="mt-1.5 text-[11px] text-zinc-500 leading-snug">
+                      Outside your hours — showing offline. Your{' '}
+                      {STATUS_META[member.status].label} setting applies once
+                      you're back on shift.
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );

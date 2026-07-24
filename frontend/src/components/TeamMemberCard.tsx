@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/TeamContext';
-import { STATUS_META, SETTABLE_STATUSES } from '../utils/status';
+import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
+import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -19,7 +21,16 @@ const inputClass =
   'w-full bg-zinc-800 text-white border border-zinc-700 rounded px-3 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
 
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
-  const { setStatus, deleteMember, refreshAllData } = useTeam();
+  const { setStatus, deleteMember, refreshAllData, recurringShifts } = useTeam();
+
+  // Same derivation the sidebar does, so the two views can't disagree about
+  // what a member's status is. Off shift shows offline regardless of what
+  // they set; the picker below still reflects their stored choice.
+  const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
+  const displayStatus = resolveDisplayStatus(
+    member.status,
+    getScheduleState(resolution, member.timezone)
+  );
 
   // Profile edit (name/timezone/job role) - PUT /:id
   const [isEditing, setIsEditing] = useState(false);
@@ -226,9 +237,15 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
             <p><span className="text-zinc-400">Timezone:</span> {member.timezone}</p>
             <p>
               <span className="text-zinc-400">Status:</span>{' '}
-              {/* Full label from the shared meta; fallback guards pre-migration
-                  records with no status set. */}
-              <span>{(STATUS_META[member.status] ?? STATUS_META.offline).label}</span>
+              {/* Derived, not raw - matches what the sidebar shows this member
+                  as. resolveDisplayStatus also covers the missing-status case
+                  (pre-migration records) by falling back to 'away'. */}
+              <span>{STATUS_META[displayStatus].label}</span>
+              {displayStatus !== member.status && !!member.status && (
+                <span className="text-zinc-500">
+                  {' '}(off shift — set {STATUS_META[member.status].label})
+                </span>
+              )}
             </p>
             <p><span className="text-zinc-400">Current Local Time:</span> {dayjs().tz(member.timezone).format('hh:mm A')}</p>
           </div>
@@ -257,6 +274,15 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
             >
               Edit
             </button>
+            {/* Admin override of this member's standing hours - same
+                HoursEditor component as /profile/hours, just targeting
+                their :id instead of the admin's own */}
+            <Link
+              to={`/members/${member._id}/hours`}
+              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+            >
+              Edit Hours
+            </Link>
             <button
               onClick={handleViewBadge}
               className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"

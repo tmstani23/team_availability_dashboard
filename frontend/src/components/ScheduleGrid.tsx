@@ -44,7 +44,11 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
             // those rows render empty.
             const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
             const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
-            return { member, hourRange };
+            // resolution is carried through (not just hourRange) because off
+            // and unset BOTH produce a null range and therefore an identical
+            // empty row - only resolution.state can tell them apart, and the
+            // name column labels the difference below.
+            return { member, hourRange, resolution };
           });
 
           // Only checked members (from TeamHoursPanel) count toward overlap.
@@ -70,14 +74,27 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
               </div>
 
               {/* Team Member Rows - centered with padding */}
-              {memberRows.map(({ member, hourRange }) => (
+              {memberRows.map(({ member, hourRange, resolution }) => (
                 <div
                   key={member._id}
                   className="grid mx-auto pl-8"
                   style={{ gridTemplateColumns: gridTemplate, gap: gridGap, margin: '6px 0', alignItems: 'center' }}
                 >
-                  <div className="font-bold pr-2 whitespace-nowrap overflow-hidden text-ellipsis text-white">
-                    {member.name}
+                  <div className="pr-2 overflow-hidden">
+                    <div className="font-bold whitespace-nowrap overflow-hidden text-ellipsis text-white">
+                      {member.name}
+                    </div>
+                    {/* An empty row of cells is ambiguous on its own: it means
+                        "off today" and "hours never set up" equally. Label the
+                        two so a brand-new member isn't silently read as
+                        someone who just isn't working today. Amber matches the
+                        sidebar's unset treatment. */}
+                    {resolution.state === 'off' && (
+                      <div className="text-[10px] text-zinc-500 whitespace-nowrap">Off today</div>
+                    )}
+                    {resolution.state === 'unset' && (
+                      <div className="text-[10px] text-amber-400/80 whitespace-nowrap">Hours not set</div>
+                    )}
                   </div>
 
                   {hours.map(hour => {

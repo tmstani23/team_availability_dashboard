@@ -1,5 +1,5 @@
 // frontend/src/components/AppHeader.tsx
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { ReactNode } from 'react';
 
@@ -24,12 +24,23 @@ const AppHeader = ({ tabs }: AppHeaderProps) => {
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-3xl font-bold">Team Availability Dashboard</h1>
-        <button
-          onClick={handleLogout}
-          className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
-        >
-          Logout
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Every logged-in user has their own hours to manage, admin or
+              not - lives outside the tabs slot since it's not route-specific
+              the way Schedule/Manage are */}
+          <Link
+            to="/profile/hours"
+            className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+          >
+            My Hours
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* Only rendered when a route passes tabs in - keeps the tab bar out
