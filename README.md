@@ -1,6 +1,8 @@
 # Distributed Team Availability Dashboard
 
-A real-time workspace visualizer built to coordinate global engineering workflows across multiple time zones. This application eliminates manual time arithmetic by serving as a single source of truth for distributed team schedules, live availability statuses, and meeting windows.
+A workspace visualizer built to coordinate global engineering workflows across multiple time zones. This application eliminates manual time arithmetic by serving as a single source of truth for distributed team schedules, availability statuses, and meeting windows.
+
+*Status: in development. Scheduling, timezone, and auth layers work; live cross-session sync is the current workstream. Feature entries below are labelled individually.*
 
 ## Goals & Design Constraints
 
@@ -12,7 +14,7 @@ The problem this solves: coordinating engineers across time zones normally means
 
 ## Core Project Features
 
-Status legend: Implemented / In Progress / Planned
+Status legend: Implemented / Planned / Cut *(cut entries stay — the reasoning is more useful than silence)*
 
 *   **[Implemented] Global Schedule Matrix Grid**: An interactive daily timeline that visually plots individual team members' work shifts side-by-side.
 *   **[Implemented] Automatic Context Time-Shifting**: Dynamically converts and renders all team schedules into the local time zone of the currently viewed user.
@@ -24,8 +26,11 @@ Status legend: Implemented / In Progress / Planned
     3. **Never set anything → `away`.** The stored default is `away`, not `active`: `active` claims someone is present and available, which only the person can assert truthfully.
 
     `offline` is deliberately not hand-settable (rejected by the API and omitted from the picker) — it can only come from the schedule, so it never blurs with a manual choice. A member with no hours on file is *not* derived offline: that's an absence of information, not evidence they're off, and the UI labels it "Hours not set" instead.
+
+    A fourth layer sits above these once Live Sync lands: a member with no recent heartbeat derives as `offline` regardless of shift, covering the on-shift-but-actually-gone case where a stored `active` is at its most misleading.
 *   **[Implemented] Meeting Overlap Finder**: A scheduling tool that scans selected team profiles and highlights the exact hours where everyone shares overlapping availability. Checkbox picker (`TeamHoursPanel`) drives an overlap row in `ScheduleGrid`, lit only where every selected member is active. Pure frontend against existing shift data — no model changes.
-*   **[In Progress] Asynchronous Break Logging**: Quick-action controls allowing workers to log temporary absences. *(Data model supports an `isBreak` flag on shifts, but no UI control exists yet, and `ScheduleGrid` currently can't render a break and a standing shift on the same day for the same person — see Known Issues below. Design direction: breaks stay as separate, dated, one-off `WorkShift` records, distinct from the recurring shift described below.)*
+*   **[Cut] Ad-hoc Break Logging**: Quick-action controls for logging temporary absences. Dropped as redundant with the `away` status. It only looked necessary because `away` didn't reach anyone — with no live sync, setting it changed nothing on a colleague's screen. Once polling lands, "I'm stepping out" is served by a control that already exists. The dated `WorkShift` model behind it is now unused.
+*   **[Planned] Recurring Lunch Break**: A standing daily break window (e.g. "12:00–12:30") inside a member's weekly hours. Distinct from the cut feature despite the shared word: a standing lunch is a *schedule* fact — known ahead, repeats, needs no live data — where an ad-hoc break is a presence fact. Renders as a carve-out in the shift block, feeds the status precedence, and stops the Overlap Finder suggesting times that land on somebody's lunch.
 *   **[Implemented] Recurring Weekly Hours**: Each person's normal working hours recur by day-of-week (e.g. "Monday: 9–5", "Friday: 9–1") rather than requiring the same shift every day. The grid still shows one day at a time; which shift displays resolves automatically from the member's own current weekday via `RecurringShift` records. No visual weekly view. Members set their own week at `/profile/hours` (admins can edit anyone's at `/members/:id/hours`) — seven weekday rows, each a time range or an "off" toggle, saved as one whole-week replace. New members start with no hours at all and are prompted to set them on first login; until they do, the UI distinguishes three states everywhere it matters — working, explicitly **off today**, and **hours not set** — since an empty row would otherwise read as "not working" when it means "we don't know yet".
 
 ## Technical Architecture
@@ -36,12 +41,20 @@ The application is structured as a full-stack system utilizing strict type-safet
 *   **[Implemented] Backend Engine**: Express.js server logic built entirely in TypeScript, processing incoming payloads, middleware routing, and timezone normalization.
 *   **[Implemented] Data Validation Layer**: Strict type-checking utilizing structural interfaces to eliminate data corruption across timezone offsets and scheduling arrays.
 *   **[Implemented] Storage Layer**: MongoDB collections using indexed Mongoose schemas.
-*   **[Implemented] Shift Data Model Rework**: Standing shifts now key off `dayOfWeek` (recurring, not date-bound) in a separate `RecurringShift` model, while one-off breaks keep a real `date` on `WorkShift`. The frontend reads recurring shifts through `scheduleTime.ts`, which resolves each member's current-weekday shift into three states (working / off / unset) and, from that, whether they're currently `on-shift` / `off-shift` / `unknown` on their own clock — the signal the derived-offline status runs on. Layering "today's break(s)" on top of the standing shift arrives with the break-logging UI — see `nextSteps.md`.
-*   **[Planned] Live Sync**: WebSockets (Socket.io) to broadcast state transitions instantly to all active client sessions without manual browser reloads. *(Not yet implemented — the dashboard currently refetches data after each action rather than pushing live updates.)*
+*   **[Implemented] Shift Data Model Rework**: Standing shifts key off `dayOfWeek` (recurring, not date-bound) in a `RecurringShift` model. The frontend reads them through `scheduleTime.ts`, which resolves each member's current-weekday shift into three states (working / off / unset) and, from that, whether they're currently `on-shift` / `off-shift` / `unknown` on their own clock — the signal the derived-offline status runs on. The older date-based `WorkShift` model has had no reader since this cutover and is slated for deletion. Layering a same-day carve-out on top of the standing shift arrives with the recurring lunch break — see `nextSteps.md`.
+*   **[Planned] Live Sync — polling + heartbeat presence**: Short-interval polling (~15s) so status changes propagate between sessions, paired with a `lastSeenAt` heartbeat stamped on each authenticated poll. No heartbeat inside the staleness window (~45s) derives as `offline` — which is what makes `active` an earned signal rather than a stored claim from whenever someone last clicked. *(Not yet implemented; the dashboard fetches once on mount — see Known Issues.)*
+
+    Socket.io was the original plan, reconsidered because an open connection is a poor liveness signal on its own — sockets sit half-open on dead networks and disconnect events get missed, so socket presence needs a heartbeat regardless. A timestamp is self-healing by comparison. Polling gets the same property without a persistent-connection deployment, costing ~45s of lag going offline. The refresh logic sits behind a seam so the transport can be swapped later.
+*   **[Planned] Meeting Model**: Scheduled meetings with attendees, rendered on the grid — closing the loop the Overlap Finder leaves open (it says when everyone is free, then hands you to an external calendar). Scoped to create / view / delete, single occurrence, no invites. Meetings carry different timezone semantics from everything else here: standing hours are wall-clock-local ("9am wherever you are" is a different instant per person), while a meeting is one fixed instant reading as a different wall-clock time per attendee — so meetings store a UTC datetime, not the `HH:mm` strings used elsewhere.
 
 ## Known Issues / Technical Debt
 
-The working list lives in `nextSteps.md` (canonical). Current items include the lingering `viewerId` timezone-preview dependency, `ScheduleGrid` still resolving a single standing shift per member (breaks layered on the same day come with the break-logging UI), shift-time validation that currently lives only on the client, and deferred design polish.
+The working list lives in `nextSteps.md` (canonical). The two most significant, both identified 7/25:
+
+- **No live sync.** Data is fetched once when the app mounts, so two people logged in from different machines never see each other's status changes without a manual reload. Addressed by the polling work above.
+- **Derived status goes stale in an open tab.** Distinct from the above, and live today: the on-shift check reads the clock at render time, but nothing triggers a render on a tick — so a member whose shift ended an hour ago keeps showing their stored status until something else causes a re-render. The logic is right, it just never gets asked again.
+
+Also tracked: the lingering `viewerId` timezone-preview dependency, `ScheduleGrid` resolving a single standing shift per member (same-day carve-outs come with the recurring lunch break), shift-time validation that currently lives only on the client, the now-unused `WorkShift` model and routes, and deferred design polish.
 
 ## Testing
 

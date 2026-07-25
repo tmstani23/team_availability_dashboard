@@ -1,6 +1,128 @@
 # Next Steps
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
+
+## DECISIONS — live presence, breaks, meetings (7/25)
+Design session, no code. Started as "build break logging," ended up
+reordering the roadmap: THE APP HAS NO LIVE PRESENCE, and breaks were
+blocked on it rather than merely unbuilt. A 30-minute fact on a dashboard
+that refreshes at login is invisible by construction.
+
+Two distinct bugs, both logged in KNOWN ISSUES:
+- refreshAllData() fires once on mount. Two users on different machines
+  never see each other's status changes without a reload.
+- Nothing re-renders on a clock tick. getScheduleState() reads dayjs() at
+  render time, so in an open tab a member's derived-offline never fires.
+  Phase 8 logic is correct, just never asked again. LIVE TODAY.
+
+### DECISION: polling + heartbeat, not Socket.io (reverses README "Planned")
+The case for sockets was connection-as-presence: an open connection is an
+unforgeable answer to "are they actually here," making 'active' earned
+rather than a stale button-click. Polling matches it via HEARTBEAT.
+
+Mechanism: clients poll ~15s, those requests are already authenticated, so
+the server stamps lastSeenAt for req.user.teamMemberId on each poll. "Here"
+= heartbeat within ~45s (2-3 intervals of grace so one dropped request
+doesn't flap them offline). Laptop closes, polls stop, stamp goes stale,
+everyone derives offline on their next poll.
+
+What settled it: an open TCP connection is a POOR liveness signal - sockets
+sit half-open on dead networks and disconnect events get missed, so socket
+presence needs a heartbeat layer anyway. A timestamp is self-healing.
+Cost: ~45s lag going offline, brief propagation delay. Acceptable.
+
+NOT a one-way door. Consumers don't care where an update came from, only
+that data changed. Put a seam there (a hook owning "when do we refresh") -
+polling is an interval calling refreshAllData(), sockets are the same hook
+with a different engine.
+
+### Status precedence (extends Phase 8's stack)
+  1. no recent heartbeat -> 'offline'  (NEW - they are not here)
+  2. off-shift           -> 'offline'  (existing)
+  3. in a standing break -> away-ish    (NEW - see lunch below)
+  4. whatever they set   -> as-is
+  5. never set anything  -> 'away'
+1 and 2 don't conflict (off-shift AND gone is offline either way). Layer 1
+exists for the ON-shift-but-gone case, where a stored 'active' is at its
+most misleading.
+
+Heartbeat piggybacked on GET /api/team-members costs zero extra requests
+but turns every read into a write. Fine at this scale; debounce to >10s-old
+stamps if it ever matters.
+
+### Deployment research (7/25) - informed the above
+- ONE service, not several. Express serves the built frontend (express.
+  static + catch-all for client routes). Not just convenience: same origin
+  keeps the sameSite:lax cookie working. Split domains would force
+  sameSite:'none' + secure - the third-party-cookie pattern browsers have
+  spent years clamping down on, and it breaks differently in Safari.
+- Free tiers degraded since ~2021: Heroku gone, Fly.io gone for new signups
+  (legacy accounts keep it), Railway now $1/mo credit (won't keep anything
+  running). Render is the remaining real one - no card, git-push deploy.
+- Render free: spins down after 15 min idle, ~1 min cold start. Since Feb
+  2026 WebSocket messages count as activity, so sockets were viable there.
+  750 instance hrs/month vs 744 in a 31-day month - always-awake just fits.
+- Atlas free tier (512MB, formerly M0) is permanent. Render's free Postgres
+  expires after 30 days - irrelevant to us, but a trap worth knowing.
+- PREREQUISITE: config extraction (Phase 0). 14 hardcoded localhost:5000
+  refs in frontend, CORS origin hardcoded in server.ts.
+- Test ladder: two browser profiles -> LAN via `vite --host` from a phone
+  (real network drops) -> cloudflared tunnel for a second real person ->
+  Render.
+
+### DECISION: ad-hoc break logging is CUT
+Redundant with 'away'. It only looked necessary because 'away' didn't reach
+anyone - with no live sync, setting it changed nothing on a colleague's
+screen. Once polling propagates status in ~15s, "I'm stepping out" is
+served by a button that already exists.
+
+Consequence: WorkShift model + /api/work-shifts routes are DEAD CODE (no
+reader since the Phase 4/5 cutover; dated breaks were their last use).
+Delete in Phase 2.
+
+### DECISION: recurring lunch break, in the hours model
+Different thing despite the shared word: a standing 12:00-12:30 is a
+SCHEDULE fact (known ahead, repeats, computable from data already fetched),
+where an ad-hoc break is a presence fact. That's why this one earns a model
+and the other doesn't.
+
+Reverses "breaks can't be recurring" below. That decision was right for the
+thing it was about - a spontaneous absence genuinely can't recur. The
+feature changed underneath it. A pivot, not a contradiction.
+
+Also delivers what breaks were originally wanted for: overlap stops
+suggesting times that land on someone's standing lunch, with no live data.
+
+Shape: optional breakStart/breakEnd (HH:mm) on RecurringShift. One record
+per member per weekday, one break per day - covers lunch. A multi-break
+model is more general than needed; revisit if a real second break appears.
+
+Open: 12:00-12:30 in an hour-bucketed grid. Same granularity tension as the
+old design but smaller - rendering the whole 12:00 cell as lunch is
+probably fine, no grid rework.
+
+### DECISION: meeting model, ACCEPTED with a hard scope edge
+Earns its place because the overlap finder dead-ends: it says when everyone
+is free, then hands you to an external calendar. A meeting model closes the
+loop (find overlap, book it, see it on the grid) and reuses the timezone/
+grid machinery already built.
+
+SCOPE EDGE: create / view on grid / delete. Single occurrence. No invites,
+RSVPs, notifications, conflict warnings, or calendar sync. Meetings attract
+features endlessly; past that line is a separate decision.
+
+THE TRAP - meetings have DIFFERENT TIMEZONE SEMANTICS from everything else
+here. Standing hours are wall-clock-local ("9am wherever you are" = a
+different instant per person). A meeting is ONE FIXED INSTANT reading as a
+different wall-clock time per attendee. So meetings store a UTC datetime,
+NOT an HH:mm string like every other time field. Wall-clock is the only
+pattern in the codebase today, so scheduleTime.ts needs a genuinely new
+function, not an adaptation. Mixing the two is the classic scheduling bug.
+
+### Note for later: lunch and meetings are cousins
+Both are "carve-outs from otherwise-available time" drawn inside a shift
+block. Teach the grid to draw a carve-out ONCE and meetings inherit it -
+build lunch that way instead of hardcoding something lunch-specific.
 
 ## COMPLETED — Phase 8: derived-offline + default-away (7/24)
 This closes the recurring-shift workstream (#1). Two changes that turned out
@@ -342,13 +464,20 @@ way it does. Nothing below is outstanding.
   is also acceptable given how little data there is. Make it a deliberate
   call in the script, don't let it guess.
 
-### Breaks stay separate from recurring shifts
+### Breaks stay separate from recurring shifts — SUPERSEDED 7/25
+Kept for the reasoning trail. The conclusion below no longer holds because
+the FEATURE changed, not because the logic was wrong: ad-hoc breaks are cut
+(redundant with 'away' once polling makes 'away' visible), and what replaced
+them is a standing weekly lunch, which is a schedule fact and therefore does
+recur. See the decisions section at the top.
 - Confirmed: breaks can't be recurring (a break is "something happening
   today," not a pattern), so they stay as dated, one-off WorkShift records
   even after standing shifts move to day-of-week recurrence
 - Practical effect: ScheduleGrid will need to resolve TWO things per
   member per day - "today's recurring shift" and "today's break(s), if
   any" - and combine them, instead of finding one shift and stopping
+  (STILL TRUE in shape - it's a lunch window rather than a break record,
+  and the stitch still happens in getCurrentShiftForMember)
 
 ### Live Availability Sidebar: 4-state status, not binary
 - PRD calls for Active / Away / Do Not Disturb / Offline
@@ -402,37 +531,99 @@ Everything previously listed here (scheduleTime tests, the recurring
 day-of-week rework phases 1-8, and the 4-state status layer) is DONE as of
 7/24 - see the COMPLETED entries at the top for what landed and why.
 
-1. Break logging UI - now unblocked. This is the first feature that needs
-   getCurrentShiftForMember to resolve TWO things per member per day
-   (today's standing RecurringShift + any dated WorkShift breaks layered on
-   top) instead of one, so it reopens the function every consumer depends
-   on - ScheduleGrid, TeamHoursPanel, the overlap row, and now
-   getScheduleState/derived status too. Worth a fresh session.
-   Open design questions to settle first:
-   - Does an active break make someone show 'away' automatically, or is a
-     break purely a grid visual? (Compare the derived-offline precedence
-     already established - a break is arguably the same kind of hard fact.)
-   - How does a break render on a row that already has a standing shift -
-     a different cell color inside the shift block, or a separate row?
-   - Who can log a break for whom (self-service like hours, or admin too)?
+Roadmap reordered 7/25. The old #1 (ad-hoc break logging UI) is CUT, not
+deferred - see the decisions section at the top. Three phases now, in
+dependency order: polling makes everything else honest, lunch is a
+contained test of changing the hours model, meetings is the big one.
 
-2. Retire the viewerId "Simulating Active User" dropdown - see KNOWN ISSUES
+### PHASE 0 — config extraction (prerequisite, small, routine)
+Not polling work, pulled out so the Phase 1 diff stays readable.
+- 14 hardcoded http://localhost:5000 refs in frontend/src -> a single
+  API base from import.meta.env.VITE_API_URL, with a .env.example
+- server.ts CORS origin hardcoded to localhost:5173 -> env var
+- Good candidate to drop to a cheaper model; it's mechanical.
+
+### PHASE 1 — robust polling + heartbeat presence (do this first)
+The enabler. Makes cross-user status real, makes derived-offline stop
+going stale in an open tab, and makes Phase 2/3 worth building.
+- Backend: lastSeenAt on TeamMember, stamped from the authenticated poll
+  (see the implementation note in the decisions section re: write
+  debouncing). Serve it on GET /api/team-members.
+- Frontend: a refresh seam - one hook owning "when do we refresh," with an
+  interval calling refreshAllData() inside it. The seam is the point; it's
+  what makes a later socket swap contained rather than a rewrite.
+- The same tick must trigger a re-render, not just a re-fetch, or the
+  clock-tick staleness bug survives. Shift-end, heartbeat expiry, and
+  (later) lunch windows all recompute on that beat.
+- resolveDisplayStatus gains the heartbeat layer at the top of the
+  precedence stack. Extend the status.ts tests alongside it.
+- Interval ~15s, staleness threshold ~45s. Tune after real use.
+- Watch for: the optimistic-update path in setStatus racing an in-flight
+  poll and flickering back to the old value. Existing rollback logic
+  doesn't cover this case.
+- Verify on two browser profiles, then LAN before believing it works.
+
+### PHASE 2 — recurring lunch break
+Contained, and it's the first change to the hours model since the rework.
+- Optional breakStart/breakEnd on RecurringShift + the mirrored types
+- HoursEditor gains a per-day break row; same client-side validation
+  question as shift times (and the backend gap below applies here too)
+- getCurrentShiftForMember / getScheduleState resolve the break window;
+  status precedence layer 3
+- Grid renders it as a CARVE-OUT inside the shift block - build the
+  carve-out generically, meetings reuse it (see the cousins note above)
+- Overlap row must exclude standing lunches
+- DELETE the dead WorkShift model + /api/work-shifts routes here
+
+### PHASE 3 — meeting model (fresh session, own design pass)
+Biggest of the three, and the only one with a genuinely new concept in it.
+- Scope edge is create / view / delete, single occurrence, no invites.
+  Hold that line.
+- Stored as a UTC instant, NOT wall-clock HH:mm - re-read the timezone
+  note in the decisions section before starting, it's the whole trap
+- Needs a new scheduleTime.ts function (instant -> viewer's clock), not an
+  adaptation of the existing wall-clock ones
+- Design questions to settle at the start: who can create a meeting for
+  whom, does an in-progress meeting affect displayed status (compare the
+  lunch precedence), and does the overlap row account for booked meetings
+
+### AFTER
+4. Retire the viewerId "Simulating Active User" dropdown - see KNOWN ISSUES
    below. Now the only remaining piece of pre-auth simulation code.
+   Phase 1 may make this more urgent: once presence is real, "simulating"
+   another user is a more confusing affordance than it already was.
 
-3. Design pass - see KNOWN ISSUES below.
+5. Deploy to Render + Atlas (see deployment research above). Could happen
+   any time after Phase 0; earlier is better for testing Phase 1 properly.
+
+6. Design pass - see KNOWN ISSUES below.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
+- NO LIVE SYNC (identified 7/25). refreshAllData() fires once on mount;
+  nothing re-fetches. Two logged-in users cannot see each other's status
+  changes without a manual reload. Fixed by Phase 1.
+- DERIVED STATUS GOES STALE IN AN OPEN TAB (identified 7/25). Separate from
+  the above and live right now: getScheduleState() calls dayjs() at render
+  time, but nothing triggers a render on a clock tick, so a member whose
+  shift ends at 5pm keeps showing their stored status indefinitely. The
+  Phase 8 logic is correct, it just never gets asked again. Fixed by Phase 1,
+  but only if the poll tick actually causes a RE-RENDER and not just a
+  re-fetch.
 - TeamStatusSidebar's "Simulating Active User" dropdown (TeamContext.
   viewerId) is leftover pre-auth code. PARTIALLY reconciled (7/18): status
   editing now keys off real auth (AuthContext.teamMemberId), but viewerId
   still drives which timezone the grid renders in. Fully retiring the
   dropdown (or pointing the tz preview at real auth) is still outstanding.
 - ScheduleGrid (via getCurrentShiftForMember) resolves exactly one STANDING
-  shift per member (today's dayOfWeek RecurringShift). This is now correct for
-  standing hours, but layering a same-day break on top is still not handled -
-  that arrives with the break-logging UI (#2). getCurrentShiftForMember is the
-  single place that stitch will happen.
+  shift per member (today's dayOfWeek RecurringShift). Correct for standing
+  hours as-is. Layering a same-day carve-out on top arrives with the
+  recurring lunch break (Phase 2) - getCurrentShiftForMember is the single
+  place that stitch happens. (Was previously blocked on the ad-hoc break
+  logging UI, which is now cut.)
+- DEAD CODE: the WorkShift model and /api/work-shifts routes have had no
+  reader since the Phase 4/5 recurring cutover, and cutting ad-hoc breaks
+  removed their last planned use. Delete in Phase 2.
 - SHIFT TIMES ARE ONLY VALIDATED CLIENT-SIDE (noticed 7/24). ScheduleGrid
   renders whole-hour blocks, so shifts must start/end on the hour and run
   at least an hour - but that rule lives only in HoursEditor's handleSave.
@@ -470,4 +661,8 @@ day-of-week rework phases 1-8, and the 4-state status layer) is DONE as of
   localhost:5173)
 
 ## KNOWN GAPS VS README (not started)
-- No WebSocket/Socket.io real-time sync (refetches after each action)
+- No live sync of any kind yet. Socket.io was the README's planned answer;
+  as of 7/25 the plan is polling + heartbeat instead (Phase 1) - see the
+  decisions section at the top for why, including why polling can still
+  deliver real "is this person actually here" presence. README updated to
+  match.
