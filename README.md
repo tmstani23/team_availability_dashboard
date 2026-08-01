@@ -2,7 +2,7 @@
 
 A workspace visualizer built to coordinate global engineering workflows across multiple time zones. This application eliminates manual time arithmetic by serving as a single source of truth for distributed team schedules, availability statuses, and meeting windows.
 
-*Status: in development. Scheduling, timezone, and auth layers work; live cross-session sync is the current workstream. Feature entries below are labelled individually.*
+*Status: in development. Scheduling, timezone, and auth layers work; config extraction and then live cross-session sync are the current workstream. Feature entries below are labelled individually.*
 
 ## Goals & Design Constraints
 

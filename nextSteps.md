@@ -1,6 +1,6 @@
 # Next Steps
 
-Last updated: 2026-07-25
+Last updated: 2026-07-31
 
 ## DECISIONS — live presence, breaks, meetings (7/25)
 Design session, no code. Started as "build break logging," ended up
@@ -193,11 +193,16 @@ changes to the cell rendering or column math, which the overlap row depends
 on staying pixel-aligned with.
 tsc -b clean.
 
-OPEN QUESTION this raises for Phase 8: an unset member currently shows their
+OPEN QUESTION this raises for Phase 8 — RESOLVED 7/24, see Phase 8 at top.
+(Left for the reasoning trail; the premise below is now WRONG - the stored
+default is 'away', not 'active'.) An unset member currently shows their
 stored manual status, which defaults to 'active' - so a brand-new member who
 has never set hours reads as "Active" in the sidebar. Decide during Phase 8
 whether unset should derive to offline like off-shift does, or stay distinct
 (arguably "we don't know" is not the same claim as "not working").
+ANSWER: neither. Changing the stored default to 'away' dissolved the
+question - no unset-specific derivation rule was needed. 'unknown' still
+does NOT derive offline.
 
 ## COMPLETED — Phase 6/7 review fixes (7/24, same day)
 Manual QA + self-review of the Phase 6/7 work turned up five issues:
@@ -536,6 +541,12 @@ deferred - see the decisions section at the top. Three phases now, in
 dependency order: polling makes everything else honest, lunch is a
 contained test of changing the hours model, meetings is the big one.
 
+HANDOFF DOCS (added 7/31): each phase below has a self-contained brief in
+docs/phases/ meant to be pasted as the opening prompt of a FRESH session,
+with a suggested model. See docs/phases/README.md for the table. The
+summaries below stay as the at-a-glance version; the docs are the
+executable version.
+
 ### PHASE 0 — config extraction (prerequisite, small, routine)
 Not polling work, pulled out so the Phase 1 diff stays readable.
 - 14 hardcoded http://localhost:5000 refs in frontend/src -> a single
@@ -649,8 +660,9 @@ Biggest of the three, and the only one with a genuinely new concept in it.
   the rest still planned, own workstream):
   - Backend unit tests (Jest) for auth logic - password hashing, JWT
     verification, role-gated middleware (highest-risk code in the project)
-  - Integration tests for API routes (team-members, work-shifts, auth)
-    via Supertest
+  - Integration tests for API routes (team-members, recurring-shifts,
+    auth) via Supertest. NOT work-shifts - those routes are deleted in
+    Phase 2.
   - Frontend component tests (Vitest + React Testing Library) for
     ScheduleGrid's timezone conversion - complex and easy to silently
     break (see the 09:00-09:05 shift bug caught in manual QA)
