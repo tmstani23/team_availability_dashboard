@@ -19,7 +19,11 @@ const teamMemberSchema = new mongoose.Schema({
     enum: ['active', 'away', 'dnd', 'offline'],
     default: 'away'
   },
-  lastUpdated: { type: Date, default: Date.now }
+  lastUpdated: { type: Date, default: Date.now },
+  // Heartbeat - stamped on authenticated GET /api/team-members polls, no
+  // default. An absent value means "never logged in", which is meaningfully
+  // different from "logged in once, a long time ago" - see resolveDisplayStatus.
+  lastSeenAt: { type: Date }
 }, { timestamps: true });
 
 export default mongoose.model<TeamMember>('TeamMember', teamMemberSchema);

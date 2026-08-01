@@ -7,6 +7,7 @@ import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/TeamContext';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
+import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import { API_BASE } from '../config';
 
 dayjs.extend(utc);
@@ -22,15 +23,22 @@ const inputClass =
   'w-full bg-zinc-800 text-white border border-zinc-700 rounded px-3 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
 
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
-  const { setStatus, deleteMember, refreshAllData, recurringShifts } = useTeam();
+  const { setStatus, deleteMember, refreshAllData, recurringShifts, now } = useTeam();
 
   // Same derivation the sidebar does, so the two views can't disagree about
   // what a member's status is. Off shift shows offline regardless of what
-  // they set; the picker below still reflects their stored choice.
-  const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
+  // they set; the picker below still reflects their stored choice. `now`
+  // comes from useRefreshTick (via context) rather than a fresh dayjs() call
+  // here, so this recomputes on every poll tick instead of freezing at
+  // whatever moment the card first rendered.
+  const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone, now);
+  const lastSeenAtMs = member.lastSeenAt ? new Date(member.lastSeenAt).getTime() : undefined;
   const displayStatus = resolveDisplayStatus(
     member.status,
-    getScheduleState(resolution, member.timezone)
+    getScheduleState(resolution, member.timezone, now),
+    lastSeenAtMs,
+    now.valueOf(),
+    HEARTBEAT_STALE_MS
   );
 
   // Profile edit (name/timezone/job role) - PUT /:id

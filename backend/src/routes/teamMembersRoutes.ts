@@ -15,12 +15,41 @@ const SALT_ROUNDS = 10; // standard cost factor - higher is slower but more brut
 // so allowing it here would let a client set a state the UI is meant to compute.
 const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
 
+// Only re-stamp the heartbeat if the existing one is at least this stale.
+// Clients poll every ~15s (see useRefreshTick.ts); without this debounce
+// every single poll would also be a write. 10s is comfortably under the
+// poll interval, so the stamp still stays fresh between polls.
+const HEARTBEAT_DEBOUNCE_MS = 10 * 1000;
+
 // GET all team members - any logged-in user can view the roster/schedule,
-// not just admins, since this powers the ScheduleGrid everyone needs to see
-router.get('/', authenticate, async (req, res) => {
+// not just admins, since this powers the ScheduleGrid everyone needs to see.
+// This is also the endpoint clients poll for presence, so it doubles as the
+// heartbeat: it stamps lastSeenAt for whoever is asking.
+router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
     const members = await TeamMemberModel.find();
     res.json(members);
+
+    // Stamp the caller's heartbeat. Keyed off the JWT's teamMemberId, never
+    // a client-supplied id. Fire-and-forget: this runs after the response is
+    // already sent, and a failure here must not fail the read - presence
+    // staleness is self-healing on the next poll anyway.
+    const callerId = req.user?.teamMemberId;
+    if (callerId) {
+      const self = members.find((m) => m._id.toString() === callerId);
+      const isStale =
+        !self?.lastSeenAt ||
+        Date.now() - new Date(self.lastSeenAt).getTime() > HEARTBEAT_DEBOUNCE_MS;
+
+      if (isStale) {
+        TeamMemberModel
+          .updateOne({ _id: callerId }, { lastSeenAt: new Date() })
+          .catch(() => {
+            // Swallow - a missed heartbeat write just means this member
+            // looks stale for one more poll cycle, not a broken request.
+          });
+      }
+    }
   } catch (error) {
     res.status(500).json({ message: 'Error fetching members' });
   }

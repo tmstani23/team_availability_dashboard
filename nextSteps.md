@@ -2,6 +2,71 @@
 
 Last updated: 2026-07-31
 
+## START HERE NEXT SESSION
+Phase 1 (polling + heartbeat presence) is code-complete but NOT yet manually
+verified or committed. Before starting Phase 2:
+1. Delete the throwaway `frontend/src/utils/__phase1Harness.ts` if it's still
+   there (Tim was going to remove it by hand - sandbox couldn't delete it).
+2. Run `npm run test:run` in `frontend/` on Windows - the new heartbeat-layer
+   tests only got vetted via a compiled-JS harness in the sandbox, not real
+   Vitest.
+3. Manual QA with two browser profiles (see the STILL NEEDED bullet in the
+   Phase 1 entry just below): cross-session status sync, stale-in-open-tab
+   shift boundary, and the ~45s offline derivation after closing a session.
+4. Once verified, commit Phase 1 (message drafted in chat 7/31) via GitHub
+   Desktop, then move on to Phase 2 (recurring lunch break).
+
+## COMPLETED — Phase 1: polling + heartbeat presence (7/31)
+Closes both live-sync bugs logged 7/25 (see KNOWN ISSUES, now removed).
+- Backend: `lastSeenAt?: Date` added to `TeamMember` (model + both mirrored
+  type files). Stamped on authenticated `GET /api/team-members` - that route
+  already fires on every poll, so it doubles as the heartbeat with zero extra
+  round trips. Debounced to writes only when the existing stamp is >10s old
+  (`HEARTBEAT_DEBOUNCE_MS` in `teamMembersRoutes.ts`), keyed off
+  `req.user.teamMemberId` from the JWT (never a client-supplied id, same
+  pattern as `PATCH /:id/status`), and fire-and-forget - a failed heartbeat
+  write doesn't fail the read.
+- Frontend: new `frontend/src/hooks/useRefreshTick.ts` is the single polling
+  seam - one interval calling a passed-in `refresh` fn, exposing a ticking
+  `now` (dayjs) alongside it. Called once inside `TeamProvider`, `now` is
+  exposed on `TeamContext` so `TeamStatusSidebar` and `TeamMemberCard` both
+  read time from context instead of calling `dayjs()` at render time - that's
+  what actually closes the "stale in an open tab" bug (a re-fetch alone
+  wasn't enough; the tick has to cause a re-render, which passing `now` into
+  `getScheduleState` guarantees).
+- `resolveDisplayStatus` (status.ts) gained the heartbeat layer on top of the
+  existing off-shift layer: no heartbeat within `HEARTBEAT_STALE_MS` (45s) ->
+  `offline`, overriding whatever was stored. Takes `lastSeenAtMs`/`nowMs`/
+  `staleThresholdMs` as plain numbers, not a lastSeenAt string + a `now`
+  object - keeps status.ts free of dayjs, same split as before. A member with
+  no `lastSeenAt` at all (never logged in) is NOT treated as stale - that's
+  an absence of information, same reasoning as unset hours, and it falls
+  through to their stored status (defaulting to `away`).
+- Tuned values: poll interval 15s, heartbeat staleness threshold 45s (both
+  named constants in `useRefreshTick.ts`).
+- RACE CONDITION: `setStatus`'s optimistic update can be overwritten by a
+  poll landing before the PATCH resolves, flickering the UI back to the old
+  value. Fix chosen: skip applying poll results, not defer the poll itself.
+  `TeamContext` now tracks in-flight writes in a `pendingStatusWrites` ref
+  (member id -> the optimistic status); `refreshAllData` re-applies any
+  pending write over the freshly polled data before calling `setMembers`.
+  Chosen over versioning the responses - simpler, and the in-flight window is
+  one PATCH, so there's nothing else worth deferring.
+- Tests: 5 new cases in `scheduleTime.test.ts`'s `resolveDisplayStatus`
+  describe block (stale forces offline even on-shift+active, exact-threshold
+  boundary, past-threshold, never-logged-in falls through, fresh heartbeat
+  doesn't mask off-shift), plus the existing cases updated for the new
+  signature. Vitest still can't run in the Linux sandbox (native bindings) -
+  verified via a throwaway compiled-JS harness instead (10/10 green,
+  including the pre-existing cases re-checked under the new signature).
+  RUN `npm run test:run` ON WINDOWS to confirm.
+- `npx tsc -b` clean both sides, `npm run lint` clean in frontend.
+- STILL NEEDED (Tim, manual QA): two browser profiles logged in as different
+  members - confirm a status change in one shows in the other within ~15s;
+  leave a tab open across a shift-end boundary and confirm it flips to
+  offline without a reload; close one profile entirely and confirm it derives
+  offline in the other within ~45s.
+
 ## COMPLETED — Phase 0: config extraction (7/31)
 Prerequisite for deploying anywhere other than localhost, pulled out so the
 Phase 1 polling diff stays readable.
@@ -630,16 +695,6 @@ Biggest of the three, and the only one with a genuinely new concept in it.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
-- NO LIVE SYNC (identified 7/25). refreshAllData() fires once on mount;
-  nothing re-fetches. Two logged-in users cannot see each other's status
-  changes without a manual reload. Fixed by Phase 1.
-- DERIVED STATUS GOES STALE IN AN OPEN TAB (identified 7/25). Separate from
-  the above and live right now: getScheduleState() calls dayjs() at render
-  time, but nothing triggers a render on a clock tick, so a member whose
-  shift ends at 5pm keeps showing their stored status indefinitely. The
-  Phase 8 logic is correct, it just never gets asked again. Fixed by Phase 1,
-  but only if the poll tick actually causes a RE-RENDER and not just a
-  re-fetch.
 - TeamStatusSidebar's "Simulating Active User" dropdown (TeamContext.
   viewerId) is leftover pre-auth code. PARTIALLY reconciled (7/18): status
   editing now keys off real auth (AuthContext.teamMemberId), but viewerId

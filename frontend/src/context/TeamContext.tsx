@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import type { TeamContextType, TeamMemberStatus, RecurringShift } from '../types';
 import { API_BASE } from '../config';
+import { useRefreshTick } from '../hooks/useRefreshTick';
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
@@ -11,6 +12,19 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Race fix (Phase 1): setStatus does an optimistic update, then awaits the
+  // PATCH. A poll (every ~15s, see useRefreshTick) can land in that window
+  // and overwrite the optimistic value with the still-old server value,
+  // flickering the UI back until the PATCH itself resolves. Fix chosen: skip
+  // applying poll results for a member's status field while that member has
+  // a write in flight, rather than versioning responses. Simpler, and the
+  // in-flight window is short (one PATCH), so nothing else needs to be
+  // deferred - just the one field being written.
+  //
+  // Keyed by member id -> the optimistic status currently in flight, so
+  // refreshAllData can re-apply it over whatever the poll just fetched.
+  const pendingStatusWrites = useRef<Map<string, TeamMemberStatus>>(new Map());
 
   // ID of the simulated "currently viewing as" user - a stand-in for real
   // auth-driven identity in parts of the UI that haven't been wired to
@@ -38,7 +52,19 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
       const membersData = await membersRes.json();
       const shiftsData = await shiftsRes.json();
 
-      setMembers(Array.isArray(membersData) ? membersData : []);
+      // Re-apply any in-flight optimistic status writes over the freshly
+      // polled data - see pendingStatusWrites above. Without this, a poll
+      // landing mid-write clobbers the optimistic value with the pre-write
+      // server state until the PATCH resolves.
+      const withPendingWrites = Array.isArray(membersData)
+        ? membersData.map((member: any) =>
+            pendingStatusWrites.current.has(member._id)
+              ? { ...member, status: pendingStatusWrites.current.get(member._id) }
+              : member
+          )
+        : [];
+
+      setMembers(withPendingWrites);
       setRecurringShifts(Array.isArray(shiftsData) ? shiftsData : []);
     } catch (err) {
       console.error("Failed to load data:", err);
@@ -53,6 +79,15 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     refreshAllData();
   }, []);
 
+  // Single polling seam for the whole app (see useRefreshTick.ts) - one
+  // interval here, shared via context, rather than every consumer setting up
+  // its own. `now` ticks every POLL_INTERVAL_MS alongside the refetch, so
+  // components deriving status from the clock (getScheduleState, the
+  // heartbeat layer) re-evaluate against a fresh timestamp instead of one
+  // captured once at mount - that's what actually closes the "stale status
+  // in an open tab" bug, not the refetch alone.
+  const now = useRefreshTick(refreshAllData);
+
   const handleMemberAdded = () => {
     refreshAllData();
   };
@@ -63,6 +98,11 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     // derive the rollback value by flipping a boolean; with four states we
     // have to remember what it actually was.)
     const previousStatus = members.find(member => member._id === id)?.status;
+
+    // Mark this member's write as in-flight so a poll landing before the
+    // PATCH resolves doesn't overwrite the optimistic value (see
+    // pendingStatusWrites above).
+    pendingStatusWrites.current.set(id, newStatus);
 
     // Optimistic update: change the UI immediately rather than waiting on the
     // network round-trip, so setting status feels instant.
@@ -88,6 +128,10 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
           member._id === id ? { ...member, status: previousStatus } : member
         )
       );
+    } finally {
+      // Write is settled (success or failure) - polls are free to reflect
+      // the real server state for this member again.
+      pendingStatusWrites.current.delete(id);
     }
   };
 
@@ -111,7 +155,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, recurringShifts, loading, setStatus, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone }}>
+    <TeamContext.Provider value={{ members, recurringShifts, loading, setStatus, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone, now }}>
       {children}
     </TeamContext.Provider>
   );

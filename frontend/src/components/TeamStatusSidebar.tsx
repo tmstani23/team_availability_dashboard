@@ -3,6 +3,7 @@ import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
+import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -12,7 +13,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  const { members, recurringShifts, setStatus, viewerId, setViewer, viewerTimezone } = useTeam();
+  const { members, recurringShifts, setStatus, viewerId, setViewer, viewerTimezone, now } = useTeam();
   // Who is ACTUALLY logged in (real auth), as opposed to viewerId which only
   // simulates whose timezone the grid previews. Editing your own status keys
   // off this - it must match the identity the backend trusts from the JWT.
@@ -69,14 +70,24 @@ const TeamStatusSidebar = () => {
 
           // Today's standing shift, resolved by the member's own weekday. Shown
           // in their own local time (no viewer-tz conversion, unlike the grid) -
-          // this answers "what does their day look like to them."
-          const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
+          // this answers "what does their day look like to them." `now` comes
+          // from useRefreshTick via context, ticking on each poll, so this
+          // re-evaluates on an open tab instead of freezing at mount time.
+          const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone, now);
 
           // What we know about their schedule right now, then what that means
           // for the pill. displayStatus can differ from member.status - being
-          // off shift derives 'offline' over whatever they last set.
-          const scheduleState = getScheduleState(resolution, member.timezone);
-          const displayStatus = resolveDisplayStatus(member.status, scheduleState);
+          // off shift (or having gone quiet - the heartbeat layer) derives
+          // 'offline' over whatever they last set.
+          const scheduleState = getScheduleState(resolution, member.timezone, now);
+          const lastSeenAtMs = member.lastSeenAt ? new Date(member.lastSeenAt).getTime() : undefined;
+          const displayStatus = resolveDisplayStatus(
+            member.status,
+            scheduleState,
+            lastSeenAtMs,
+            now.valueOf(),
+            HEARTBEAT_STALE_MS
+          );
           // True when the schedule is overriding a choice they actually made.
           // Only worth surfacing on your own row, where clicking a status
           // button otherwise looks like it silently did nothing.

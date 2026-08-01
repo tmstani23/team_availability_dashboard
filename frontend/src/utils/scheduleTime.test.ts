@@ -313,34 +313,79 @@ describe('getScheduleState', () => {
 });
 
 // ---------------------------------------------------------------------------
-// resolveDisplayStatus - the precedence rule:
-//   off-shift -> offline (wins) -> otherwise stored -> otherwise away
+// resolveDisplayStatus - the precedence rule (Phase 1 adds the heartbeat
+// layer on top):
+//   no recent heartbeat -> offline (wins) -> off-shift -> offline (wins) ->
+//   otherwise stored -> otherwise away
+//
+// Heartbeat args are plain millisecond numbers (see status.ts for why - it
+// stays free of dayjs). NOW is an arbitrary fixed instant; STALE mirrors
+// HEARTBEAT_STALE_MS. Existing off-shift/stored/fallback tests pass
+// lastSeenAtMs: undefined - "no heartbeat info at all" - so they exercise
+// exactly the same precedence as before this layer existed.
 // ---------------------------------------------------------------------------
 describe('resolveDisplayStatus', () => {
+  const NOW = 1_700_000_000_000;
+  const STALE = 45 * 1000;
+
   it('derives offline when off shift, overriding whatever was set', () => {
     // The stale-claim case: they clicked Active this morning and left.
-    expect(resolveDisplayStatus('active', 'off-shift')).toBe('offline');
-    expect(resolveDisplayStatus('dnd', 'off-shift')).toBe('offline');
+    expect(resolveDisplayStatus('active', 'off-shift', undefined, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus('dnd', 'off-shift', undefined, NOW, STALE)).toBe('offline');
   });
 
   it('respects the stored status while on shift', () => {
-    expect(resolveDisplayStatus('active', 'on-shift')).toBe('active');
-    expect(resolveDisplayStatus('dnd', 'on-shift')).toBe('dnd');
-    expect(resolveDisplayStatus('away', 'on-shift')).toBe('away');
+    expect(resolveDisplayStatus('active', 'on-shift', undefined, NOW, STALE)).toBe('active');
+    expect(resolveDisplayStatus('dnd', 'on-shift', undefined, NOW, STALE)).toBe('dnd');
+    expect(resolveDisplayStatus('away', 'on-shift', undefined, NOW, STALE)).toBe('away');
   });
 
   it('does NOT derive offline when the schedule is unknown', () => {
     // No hours on file is not evidence they are off - asserting offline here
     // would be an unearned claim. The "Hours not set" label carries this.
-    expect(resolveDisplayStatus('active', 'unknown')).toBe('active');
+    expect(resolveDisplayStatus('active', 'unknown', undefined, NOW, STALE)).toBe('active');
   });
 
   it('falls back to away when nothing was ever set', () => {
     // 'active' is a claim only the person can make, so an absent value means
     // "no signal yet" - matching the TeamMember schema default.
-    expect(resolveDisplayStatus(undefined, 'unknown')).toBe('away');
-    expect(resolveDisplayStatus(undefined, 'on-shift')).toBe('away');
+    expect(resolveDisplayStatus(undefined, 'unknown', undefined, NOW, STALE)).toBe('away');
+    expect(resolveDisplayStatus(undefined, 'on-shift', undefined, NOW, STALE)).toBe('away');
     // ...but a known off-shift still wins over the fallback.
-    expect(resolveDisplayStatus(undefined, 'off-shift')).toBe('offline');
+    expect(resolveDisplayStatus(undefined, 'off-shift', undefined, NOW, STALE)).toBe('offline');
+  });
+
+  describe('heartbeat layer (Phase 1)', () => {
+    it('derives offline when the heartbeat is stale, even on-shift with active set', () => {
+      // The case the layer exists for: shift says they should be here, they
+      // last claimed 'active', but nothing has pinged the server in a while.
+      const staleSeen = NOW - STALE - 1;
+      expect(resolveDisplayStatus('active', 'on-shift', staleSeen, NOW, STALE)).toBe('offline');
+    });
+
+    it('does NOT derive offline right at the threshold, only once past it', () => {
+      // Exactly STALE ms old is still within grace (comparison is strictly
+      // greater-than) - avoids flapping someone offline on a borderline poll.
+      const atThreshold = NOW - STALE;
+      expect(resolveDisplayStatus('active', 'on-shift', atThreshold, NOW, STALE)).toBe('active');
+
+      const pastThreshold = NOW - STALE - 1;
+      expect(resolveDisplayStatus('active', 'on-shift', pastThreshold, NOW, STALE)).toBe('offline');
+    });
+
+    it('a fresh heartbeat does not override off-shift or the stored status', () => {
+      const freshSeen = NOW - 5000;
+      expect(resolveDisplayStatus('active', 'off-shift', freshSeen, NOW, STALE)).toBe('offline');
+      expect(resolveDisplayStatus('dnd', 'on-shift', freshSeen, NOW, STALE)).toBe('dnd');
+    });
+
+    it('never-logged-in (no lastSeenAt at all) falls through instead of deriving offline', () => {
+      // This is the critical distinction from "stale": undefined is an
+      // ABSENCE of information, not evidence of one. A member an admin just
+      // created, who has never logged in, should read as their stored
+      // status (defaulting to away), not offline.
+      expect(resolveDisplayStatus('active', 'on-shift', undefined, NOW, STALE)).toBe('active');
+      expect(resolveDisplayStatus(undefined, 'unknown', undefined, NOW, STALE)).toBe('away');
+    });
   });
 });

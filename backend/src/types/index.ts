@@ -10,6 +10,11 @@ export interface TeamMember {
   role: string;
   status: TeamMemberStatus;  // replaces the old isAvailable boolean
   lastUpdated: Date;
+  // Heartbeat timestamp, stamped on every authenticated GET /api/team-members
+  // poll (debounced). Optional/no default: absent means "never logged in",
+  // which must NOT be treated the same as "logged in once, long ago" - see
+  // the resolveDisplayStatus heartbeat layer in the frontend.
+  lastSeenAt?: Date;
 }
 
 // Auth credentials + role, kept separate from TeamMember so password/email

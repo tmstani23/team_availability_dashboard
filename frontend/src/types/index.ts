@@ -10,6 +10,9 @@ export interface TeamMember {
   role: string;
   status: TeamMemberStatus;  // replaces the old isAvailable boolean
   lastUpdated: string;
+  // Heartbeat timestamp from the last authenticated poll. Absent means "never
+  // logged in" - must fall through the heartbeat layer, not derive offline.
+  lastSeenAt?: string;
 }
 
 // Auth credentials + role, kept separate from TeamMember so password/email
@@ -49,6 +52,13 @@ export interface RecurringShift {
 }
 
 export interface TeamContextType {
+  // Ticking clock from useRefreshTick - components computing schedule/
+  // heartbeat state should read time from here, not call dayjs() themselves,
+  // so they actually re-render on each poll tick instead of going stale in
+  // an open tab. Typed as `any` here (not Dayjs) so this shared types file
+  // - mirrored by hand on the backend - doesn't have to import a frontend-only
+  // date library.
+  now: any;
   members: any[];
   recurringShifts: RecurringShift[];
   loading: boolean;
