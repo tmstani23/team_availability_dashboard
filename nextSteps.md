@@ -2,6 +2,32 @@
 
 Last updated: 2026-07-31
 
+## COMPLETED — Phase 0: config extraction (7/31)
+Prerequisite for deploying anywhere other than localhost, pulled out so the
+Phase 1 polling diff stays readable.
+- New frontend/src/config.ts exports API_BASE (`import.meta.env.VITE_API_URL
+  ?? 'http://localhost:5000'`) - all 14 hardcoded `http://localhost:5000`
+  fetch calls across AuthContext, TeamContext, AddTeamMemberForm,
+  HoursEditor, and TeamMemberCard now import this instead. API_BASE is now
+  the single place the backend URL lives - Phase 1's new fetches (and
+  anything else added later) should import it rather than hardcoding a URL.
+- frontend/.env.example added (documents VITE_API_URL); frontend/.gitignore
+  didn't already cover `.env`, added it.
+- backend/src/server.ts: CORS origin now reads `process.env.CORS_ORIGIN`,
+  falling back to the same `http://localhost:5173` literal.
+  `credentials: true` and the rest of the CORS config untouched.
+- backend/.env.example created (didn't exist) - mirrors every process.env
+  key actually referenced in backend/src (MONGODB_URI, JWT_SECRET, PORT,
+  NODE_ENV, SEED_ADMIN_EMAIL/PASSWORD from resetAdminPassword.ts) plus the
+  new CORS_ORIGIN. Root .gitignore already covered `.env` / `backend/.env`.
+- Verified: `npx tsc -b` clean in both backend and frontend, `npm run lint`
+  clean in frontend. Grepped for localhost:5000/5173 - only the two
+  fallback defaults (config.ts, server.ts) and the .env.example files
+  remain.
+- STILL NEEDED: Tim to run both dev servers with no .env files present and
+  confirm login still works (auth cookie is what breaks silently if a URL
+  is wrong).
+
 ## DECISIONS — live presence, breaks, meetings (7/25)
 Design session, no code. Started as "build break logging," ended up
 reordering the roadmap: THE APP HAS NO LIVE PRESENCE, and breaks were
@@ -546,13 +572,6 @@ docs/phases/ meant to be pasted as the opening prompt of a FRESH session,
 with a suggested model. See docs/phases/README.md for the table. The
 summaries below stay as the at-a-glance version; the docs are the
 executable version.
-
-### PHASE 0 — config extraction (prerequisite, small, routine)
-Not polling work, pulled out so the Phase 1 diff stays readable.
-- 14 hardcoded http://localhost:5000 refs in frontend/src -> a single
-  API base from import.meta.env.VITE_API_URL, with a .env.example
-- server.ts CORS origin hardcoded to localhost:5173 -> env var
-- Good candidate to drop to a cheaper model; it's mechanical.
 
 ### PHASE 1 — robust polling + heartbeat presence (do this first)
 The enabler. Makes cross-user status real, makes derived-offline stop

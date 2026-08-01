@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { TeamContextType, TeamMemberStatus, RecurringShift } from '../types';
+import { API_BASE } from '../config';
 
 const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
@@ -31,8 +32,8 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
       // option, the browser won't attach that cookie cross-origin, and
       // every request 401s.
       const [membersRes, shiftsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/team-members', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/recurring-shifts', { credentials: 'include' })
+        fetch(`${API_BASE}/api/team-members`, { credentials: 'include' }),
+        fetch(`${API_BASE}/api/recurring-shifts`, { credentials: 'include' })
       ]);
       const membersData = await membersRes.json();
       const shiftsData = await shiftsRes.json();
@@ -72,7 +73,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     );
 
     try {
-      await fetch(`http://localhost:5000/api/team-members/${id}/status`, {
+      await fetch(`${API_BASE}/api/team-members/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -99,7 +100,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     setMembers(prev => prev.filter(member => member._id !== id));
 
     try {
-      await fetch(`http://localhost:5000/api/team-members/${id}`, {
+      await fetch(`${API_BASE}/api/team-members/${id}`, {
         method: 'DELETE',
         credentials: 'include'
       });

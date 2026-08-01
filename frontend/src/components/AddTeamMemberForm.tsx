@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTeam } from '../context/TeamContext';
+import { API_BASE } from '../config';
 
 const AddTeamMemberForm = () => {
   // Single state object for all fields (controlled inputs) rather than
@@ -38,7 +39,7 @@ const AddTeamMemberForm = () => {
       // No standing hours are created here - the member starts with zero
       // RecurringShift records and fills their own week later via
       // /profile/hours (see HoursEditor.tsx).
-      const response = await fetch('http://localhost:5000/api/team-members', {
+      const response = await fetch(`${API_BASE}/api/team-members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

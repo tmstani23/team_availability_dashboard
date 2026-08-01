@@ -35,7 +35,7 @@ app.use(express.json());
 // even on localhost). The wildcard '*' origin used before this doesn't work
 // once credentials are involved - CORS requires an explicit origin instead.
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   credentials: true
 }));
 

@@ -7,6 +7,7 @@ import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/TeamContext';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
+import { API_BASE } from '../config';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -65,7 +66,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
     }
 
     try {
-      await fetch(`http://localhost:5000/api/team-members/${member._id}`, {
+      await fetch(`${API_BASE}/api/team-members/${member._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // sends the httpOnly cookie so authenticate + requireAdmin can verify this request
@@ -89,7 +90,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
 
     setBadgeError('');
     try {
-      const res = await fetch(`http://localhost:5000/api/team-members/${member._id}/badge`, {
+      const res = await fetch(`${API_BASE}/api/team-members/${member._id}/badge`, {
         credentials: 'include'
       });
 
@@ -111,7 +112,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
     setRoleUpdating(true); // disables the button below so a slow request can't be double-clicked
 
     try {
-      const res = await fetch(`http://localhost:5000/api/team-members/${member._id}/role`, {
+      const res = await fetch(`${API_BASE}/api/team-members/${member._id}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -148,7 +149,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
     }
 
     try {
-      const res = await fetch(`http://localhost:5000/api/team-members/${member._id}/password`, {
+      const res = await fetch(`${API_BASE}/api/team-members/${member._id}/password`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
 import type { DayOfWeek, RecurringShift } from '../types';
 import { homePathForRole } from '../utils/routes';
+import { API_BASE } from '../config';
 import dayjs from 'dayjs';
 
 interface HoursEditorProps {
@@ -68,7 +69,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
     setLoading(true);
     setError('');
 
-    fetch(`http://localhost:5000/api/team-members/${targetId}/hours`, { credentials: 'include' })
+    fetch(`${API_BASE}/api/team-members/${targetId}/hours`, { credentials: 'include' })
       .then(res => {
         // A failed request still parses as JSON, but as a { message } object
         // rather than the array below - without this check the for...of would
@@ -141,7 +142,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         })),
       };
 
-      const res = await fetch(`http://localhost:5000/api/team-members/${targetId}/hours`, {
+      const res = await fetch(`${API_BASE}/api/team-members/${targetId}/hours`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
