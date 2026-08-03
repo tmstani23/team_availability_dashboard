@@ -17,7 +17,35 @@ all future git operations until Tim deletes them manually in Explorer.
   always use `git --no-optional-locks <cmd>` — plain `git status` can
   briefly take `index.lock` too
 - Commits are Tim's job (GitHub Desktop). When a commit is warranted,
-  draft the commit message in chat for him to paste
+  draft the commit message in chat for him to paste — but NOT until the
+  work has actually been tested. See "Order of work" below.
+
+### Commit message style: WHAT landed, not how or why
+
+A commit message is an inventory of what changed, not an explanation of
+it. Say what was accomplished and stop.
+
+- Short imperative subject line, matching existing history ("Add hours
+  editor, first-run gate, and derived-offline status", "Phase 2:
+  recurring lunch break"). A `Phase N:` prefix is fine when it maps to a
+  phase doc.
+- Body is a flat bullet list of what now exists or behaves differently.
+  One line each.
+- NO rationale, NO "because", NO trade-offs considered, NO description of
+  the bug's mechanism. If a sentence explains a decision, it doesn't
+  belong here.
+- Bugs fixed are listed as fixed, not diagnosed: "Fix meetings not
+  refetching when the viewer's timezone changes" — not a paragraph on why
+  the mount-only effect was wrong.
+
+The reasoning still gets written down, just not here: `nextSteps.md` is
+the decisions log and holds the why, the alternatives rejected, and the
+failure modes. Code comments hold the local why. The commit message is
+the index, and duplicating the reasoning across all three is what made
+past messages long enough that nobody re-reads them.
+
+Note this is a deliberate departure from commits before 8/3, which put
+the full rationale in the body — don't pattern-match on those.
 
 ## How to build
 
@@ -33,8 +61,39 @@ all future git operations until Tim deletes them manually in Explorer.
   or non-obvious, especially things that changed since he was last active
   (library versions, new patterns, tooling shifts).
 - Task tracking lives in `nextSteps.md` — the canonical task list, decisions
-  log, and known-issues list. README points to it. Keep it updated as work
-  lands.
+  log, and known-issues list. README points to it. It gets updated at the END
+  of a session, not as work lands — see "Order of work" below.
+
+## Order of work: build → test → THEN docs and commit
+
+Within a session, do the work in this order and STOP at the boundary:
+
+1. **Design/decide** where the phase calls for it. A `### DECISION:` block in
+   `nextSteps.md` written BEFORE building is the exception to everything
+   below — it's an input to the build, not a record of it, and it's cheap to
+   amend if the build changes something.
+2. **Build**, with `tsc` / harness checks as you go.
+3. **Report what's ready to test**, and stop. List what Tim needs to run
+   (lint, tests, browser QA) and what specifically to look for.
+4. **WAIT.** Tim runs the tests and reports back.
+5. Only then, and only after ASKING: write the `## COMPLETED` entry in
+   `nextSteps.md`, update the README, and draft the commit message (see
+   "Commit message style" above — the reasoning goes in `nextSteps.md`, the
+   commit message just lists what landed).
+
+Why: writing the log before testing means rewriting it when something fails,
+and it produces multi-commit churn where one clean commit would do. A
+`COMPLETED` entry describing untested work is also just wrong — it hasn't
+been completed, it's been written.
+
+DO NOT write docs or draft a commit message unprompted at the end of a build.
+Ask first ("ready for me to log this?"), because sometimes the answer is
+"not yet, I found something." If Tim asks for docs explicitly, that's a green
+light — just don't volunteer it.
+
+Corollary: if testing turns up a fix, that fix belongs in the SAME session's
+undocumented pile. Fix it, re-report, wait again. The docs describe the state
+of things once, at the end.
 
 ## Voice & style (responses and code comments)
 

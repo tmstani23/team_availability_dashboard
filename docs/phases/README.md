@@ -7,6 +7,11 @@ session as the opening prompt — it assumes the agent has read `CLAUDE.md`
 Run them in order. Each doc ends with a "log it" step that updates
 `nextSteps.md`, so the next phase starts from an accurate tracker.
 
+That "log it" step happens AFTER Tim has tested the phase, not at the end of
+the build — see "Order of work" in `CLAUDE.md`. A phase doc's build section
+finishing is the cue to hand over for testing, not to start writing the
+`## COMPLETED` entry.
+
 | Phase | File | Shape of the work |
 |---|---|---|
 | 0 | `phase-0-config-extraction.md` | Mechanical find-and-replace. No design decisions. |

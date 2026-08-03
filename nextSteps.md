@@ -1,22 +1,505 @@
 # Next Steps
 
-Last updated: 2026-07-31
+Last updated: 2026-08-03
 
 ## START HERE NEXT SESSION
-Phase 1 (polling + heartbeat presence) is code-complete but NOT yet manually
-verified or committed. Before starting Phase 2:
-1. Delete the throwaway `frontend/src/utils/__phase1Harness.ts` if it's still
-   there (Tim was going to remove it by hand - sandbox couldn't delete it).
-2. Run `npm run test:run` in `frontend/` on Windows - the new heartbeat-layer
-   tests only got vetted via a compiled-JS harness in the sandbox, not real
-   Vitest.
-3. Manual QA with two browser profiles (see the STILL NEEDED bullet in the
-   Phase 1 entry just below): cross-session status sync, stale-in-open-tab
-   shift boundary, and the ~45s offline derivation after closing a session.
-4. Once verified, commit Phase 1 (message drafted in chat 7/31) via GitHub
-   Desktop, then move on to Phase 2 (recurring lunch break).
+Committed through `72d4b4e`; Phase 3 is built, tested and READY TO COMMIT but
+not yet committed. Phases 0-3 are all browser-verified.
 
-## COMPLETED — Phase 1: polling + heartbeat presence (7/31)
+THE ROADMAP'S FEATURE WORK IS DONE. What's left is polish and cleanup, all
+small and independent, and the order below is deliberate:
+
+1. PHASE 3 ADDON - show each member's timezone in the sidebar. Planned to fold
+   into Phase 3 and NOT done. Now the most valuable of the remaining items:
+   the sidebar shows a bare clock ("10:41 AM") with no zone, and since
+   meetings landed, "what time is this for them" is the question that corner
+   of the UI gets asked most. Details in the roadmap below.
+2. DESIGN PASS -> RETIRE viewerId -> FINAL TESTING, in that order and for the
+   reasons written up under AFTER below.
+   HEADS UP: retiring viewerId deletes the "Simulating Active User" dropdown,
+   which is the only way to preview another timezone - i.e. the tool that
+   makes Phase 3's cross-timezone behaviour testable by hand at all. Before
+   deleting it, decide what replaces it for that purpose, or accept that
+   cross-tz checking becomes a second-browser-profile job.
+3. Deploy to Render + Atlas. Research is in the decisions section; possible
+   any time since Phase 0.
+
+QA status as of 8/3 - Phase 3, all by hand: meeting drawing + "In a meeting"
+pill, the same meeting moving 17:00 (Chicago) -> 07:00 (Tokyo) on a viewer
+switch and landing on Tokyo's next calendar day, the overlap row excluding
+both a lunch hour and a booked hour, a meeting nested inside a full-hour lunch
+still drawing, delete refreshing the grid, and cross-session status sync
+holding up in a second incognito profile. Lint clean, Vitest green.
+
+QA status as of 8/2 (Phases 0-2) - login and session restore, status set +
+persist, overnight shifts (20:00-05:00 saving and drawing continuously through
+midnight), lunches rendering as fractional carve-outs with correct tick
+spacing, derived "At lunch"/"Offline" statuses, and the admin hours editor's
+timezone panel against a Sydney member from Chicago (+15h, cross-date warning
+firing correctly).
+
+NOT COVERED BY ANY QA SO FAR, worth a look sometime: a non-admin trying to
+delete someone else's meeting (should get the organizer-or-admin message, not
+a row that vanishes and reappears), and a meeting booked across the viewer's
+local midnight (should draw only the part falling on today).
+
+This file is now ~1100 lines and the completed entries bury the actionable
+ones. Splitting the finished phases into `docs/decisions.md` and leaving this
+as START HERE + roadmap + known issues is still worth doing, and is a good
+warm-up task.
+
+Still deliberately NOT done: component or backend test coverage. The three
+bugs found on 8/2 (status rollback writing undefined, the hours-editor fetch
+race, the state bleed between members) all lived in the seam between React
+state and the network, which is exactly what the pure-function tests
+structurally cannot reach. Phase 3 added more of that seam - MeetingPanel's
+form, the create/delete round trips - so this got slightly more valuable.
+Tracked in the test roadmap below.
+
+## COMPLETED — Phase 3: meeting model (8/3)
+Built on the decisions immediately below, which were settled first and not
+revised during the build. Create / view / delete, single occurrence; the scope
+edge held.
+
+VERIFIED 8/3 (Tim, manual QA): meeting drawing on every attendee's row and
+the "In a meeting" pill; the SAME meeting moving from the 17:00 column
+(Chicago) to 07:00 (Tokyo) when the viewer switches - and landing on Tokyo's
+NEXT calendar day, which is the cross-day rule rather than a rounding
+accident; the overlap row dark at both 12:00 (lunch) and 17:00 (meeting),
+i.e. both exclusion paths at once; a meeting nested inside a full-hour lunch
+drawing violet-inside-grey; delete refreshing the grid; and cross-session
+status propagation still working in a second incognito profile (the main
+regression risk from the refetch fix below). `npm run lint` clean and
+`npm run test:run` green on Windows under real Vitest.
+
+- Model `backend/src/models/Meeting.ts`: title, `startsAt`/`endsAt` as Date
+  (UTC instants), `attendeeIds` refs, `createdBy`, index on `startsAt`.
+  Mirrored by hand into both type files, with the instant-vs-wall-clock note
+  restated in each because that's where someone will look first.
+- `backend/src/utils/meetingValidation.ts`: title, duration (15min-12h),
+  attendee ids. `parseInstant` REJECTS a bare "2026-08-03 14:00" - a string
+  with no offset names a wall clock, not an instant, and guessing a zone for
+  it is precisely the bug this phase is about. It also accepts any offset,
+  not just Z, since an instant is an instant however it was written.
+  Deliberately shares no code with shiftValidation.ts: there's no
+  "on the hour" rule and no wrap-past-midnight case here, because an instant
+  is just a number and "before" means before.
+- Routes `/api/meetings`: GET by range (any authed user, interval-OVERLAP
+  test not "starts inside", so a meeting running in from yesterday still
+  appears), POST, DELETE. Mounted in server.ts.
+- NEW `resolveMeetingCarveOutInViewerTz` in scheduleTime.ts, plus
+  `viewerDayWindow`, `isMeetingInProgress`, `meetingsForMember`. Kept behind a
+  banner comment separating the instant functions from the wall-clock ones.
+  THE ASYMMETRY WORTH REMEMBERING: resolveHourRangeInViewerTz MUST anchor to
+  today (its input carries no date, so there's no offset to use otherwise);
+  the meeting one MUST NOT (its input carries its own date, and dayjs applies
+  that date's offset on .tz() automatically). Same-looking conversions,
+  opposite requirements.
+- CLAMPED to the viewer's local day, which was not in the plan and turned out
+  to remove a whole class of edge case. The grid's columns are hour-of-day, so
+  an unclamped meeting spilling over midnight would paint cells belonging to a
+  different day. A useful consequence: a clamped carve-out never wraps, so
+  isOvernight is always false for meetings, and the fiddly two-segment
+  overnight path only breaks ever apply to lunches.
+  A meeting ending exactly at local midnight reports endHour 24, not 0 -
+  otherwise it collapses to zero width and the last hour draws as free.
+- `ScheduleCell` took the two changes predicted in the decision block, both
+  real rather than free inherits: `carve` became `carves` (a member can be at
+  lunch and in a meeting in the same hour), and a carve no longer requires an
+  active cell (a meeting can be booked outside someone's hours; a lunch can't).
+  Slices are sorted and trimmed so the gradient stays a single left-to-right
+  sweep - out-of-order stops get silently clamped by CSS into a smear rather
+  than an edge. Each slice carries its own colour, so the component still
+  knows nothing about what a carve-out means.
+- Status: `meeting` added to both type files and STATUS_META, absent from
+  SETTABLE_STATUSES and from the schema enum (same treatment as `break`).
+  `resolveDisplayStatus` gained an `inMeeting` boolean - deliberately NOT
+  folded into ScheduleState, which describes standing hours that meetings
+  aren't part of. The added parameter broke every call site loudly, which is
+  what caught a dropped `lastSeenAtMs` argument in TeamMemberCard during the
+  build.
+- The sidebar's and card's override notes now name the ACTUAL reason
+  (in a meeting / at lunch / off shift). They previously hardcoded "off
+  shift", which after this phase would confidently mis-explain a correct
+  display.
+- New `MeetingPanel.tsx` between the Overlap Finder and the grid: find the
+  overlap above, book it here, see it below. Attendees prefill from whoever
+  was checked in the finder, plus yourself - so the common path never hits the
+  self-attendance 403 at all. It contains the ONE place in the app where a
+  wall clock becomes an instant (`dayjs.tz(date + time, viewerTimezone)`),
+  marked as such: using plain `dayjs()` there would silently use the BROWSER's
+  zone, which is right only while it happens to match the viewer's.
+- `deleteMeeting` checks res.ok, unlike the older `deleteMember` - a delete
+  here can be REFUSED rather than merely fail, and without the check a member
+  clicking delete on someone else's meeting would watch it vanish and
+  reappear on the next poll with no explanation.
+- Tests: 21 new cases, 89/89 green via the compiled-JS harness (Vitest still
+  can't run in the sandbox - rolldown native bindings). Harness verified by
+  deliberately breaking an assertion and confirming it failed. Backend
+  validation checked separately with a throwaway harness, 18/18.
+  THE DST PAIR is the one worth understanding: two meetings, each exactly two
+  hours of real elapsed time, both in Chicago, drawn at DIFFERENT WIDTHS -
+  spring-forward spans three wall-clock hours (01:00->04:00), fall-back spans
+  one (01:30->02:30). An implementation that read the start's offset once and
+  applied it to both ends gives a clean 2-hour block in both cases and passes
+  every other test in the file.
+
+TWO BUGS FOUND IN SELF-REVIEW, before Tim tested - both would have shown up
+in QA as "the timezone code is broken" while being nothing of the sort:
+
+- STALE MEETING WINDOW. The meetings request builds its date window from
+  `viewerTimezone`, but the fetch only fired on mount. So (a) on first load
+  `members` is still empty and viewerTimezone is the 'America/Chicago'
+  FALLBACK, meaning the initial fetch asks for the wrong day for anyone else,
+  and (b) switching the viewer dropdown didn't refetch at all. Either way the
+  window stayed wrong until the next poll (~15s). The mount effect now depends
+  on `[viewerTimezone]`. `refreshAllData` is deliberately NOT in the deps -
+  it's redefined every render, so including it loops; the values that matter
+  are covered by viewerTimezone. This also silenced the pre-existing
+  exhaustive-deps warning at that site.
+  Worth noting the failure mode: it would have made meetings appear missing or
+  duplicated at exactly the moment you switch timezones to TEST the timezone
+  handling. A stale fetch wearing a timezone bug's costume.
+- NESTED CARVE-OUTS SWALLOWED. The first cut built the cell as ONE gradient
+  with every slice's stops in it, which needs the slices sorted and overlaps
+  trimmed to keep stops ascending. That quietly ate any slice CONTAINED in
+  another: a 12:15-12:45 meeting inside a 12:00-13:00 lunch trimmed to zero
+  width, so the cell drew as pure lunch. status.ts says a meeting outranks a
+  lunch and the grid was saying the opposite.
+  Fixed by LAYERING instead of merging: one gradient layer per slice,
+  transparent outside its own range, over a solid `backgroundColor` base.
+  Overlaps then resolve by stacking order with no sorting, no trimming and
+  nothing lost. CSS paints the FIRST background-image layer on top, so the
+  list is reversed and the rule becomes "later slices win" - which lets the
+  CALLER own priority (ScheduleGrid lists lunch first, meetings after) and
+  keeps ScheduleCell ignorant of what a slice means. Simpler than the code it
+  replaced, which is usually the sign the first design was fighting itself.
+
+- `npx tsc -b` clean in frontend, `npx tsc --noEmit` clean in backend. NOTE
+  for future sessions: `tsc --noEmit` in frontend/ is a NO-OP - the root
+  tsconfig has `files: []` and only references the app/node projects, so it
+  silently reports nothing. Use `tsc -b`. ESLint times out in the sandbox (as
+  in Phase 2), so lint and Vitest were both run on Windows - see VERIFIED
+  above.
+
+### DECISION: meeting model (8/3, design pass — no code)
+Settles the four questions in `docs/phases/phase-3-meetings.md` plus two
+consequences that only surfaced once the answers were lined up against the
+existing code. Scope edge unchanged: create / view on grid / delete, single
+occurrence, no invites, RSVPs, notifications, conflict warnings, or sync.
+
+STORAGE, restated because it's the trap: `startsAt` / `endsAt` are UTC
+`Date`s. Every other time field in this project is a wall-clock `HH:mm`
+string with no date and no offset, and the two must not meet. A standing
+9am is a different instant per person; a meeting is one instant that reads
+as a different wall clock per person.
+
+1. WHO CAN CREATE — any authenticated member, but the creator MUST be one of
+   the attendees. Admins are exempt and can book for anyone. Delete is
+   creator-or-admin.
+   The existing rule is "trust `req.user.teamMemberId`, never a client id,"
+   which assumes a write has exactly one subject. A meeting has several, so
+   the rule doesn't transfer directly - but its INTENT does: you may commit
+   your own time, not someone else's unilaterally. Requiring self-attendance
+   is that intent applied to a multi-subject write. It's still a JWT-derived
+   check, not a client-supplied one; the difference is that the JWT id must
+   appear IN the attendee list rather than BE the target.
+   Rejected admin-only: the Overlap Finder is deliberately open to every
+   member (see the 7/18 access decision), so an admin-only booking flow would
+   leave the feature dead-ending for exactly the people it was opened up for.
+   Rejected fully-open: nothing would tie a write back to its author, and
+   "member A books member B and C into a 6am call" is a real thing to be able
+   to say no to.
+
+2. IN-PROGRESS MEETING AFFECTS STATUS — yes. NEW derived-only `meeting`
+   status ('In a meeting'), built exactly like `break`: absent from
+   `SETTABLE_STATUSES` (an allowlist, so the API rejects it without knowing
+   it exists) and absent from the TeamMember schema enum, since nothing ever
+   writes it and letting the DB accept it would only create a way for the
+   value to get stuck in a document no schedule change could clear.
+   The "a meeting is the most actively-working a person gets" argument is
+   true and still loses, because the dashboard doesn't answer "are they
+   working," it answers "can I ping them right now." During a meeting the
+   answer is no. Reusing `break` was rejected for the same reason `break`
+   didn't reuse `away`: the grid would draw a meeting while the sidebar said
+   "At lunch."
+
+   PRECEDENCE (falls out of 1 and 2, and needs stating because a meeting can
+   be booked over a lunch):
+     1. no recent heartbeat -> 'offline'
+     2. off-shift           -> 'offline'
+     3. in a meeting        -> 'meeting'  (NEW)
+     4. in a standing break -> 'break'
+     5. whatever they set   -> as-is
+     6. never set anything  -> 'away'
+   Meeting sits ABOVE break because both are plans, but one is specific and
+   dated while the other is a weekly default. Someone who accepted a meeting
+   across their usual lunch has, by booking it, said which one is happening.
+   Meeting sits BELOW the heartbeat for the reason break does: a booking is a
+   plan, the heartbeat is evidence, and a laptop shut for an hour shouldn't
+   render as a meeting in progress.
+   Meeting stays below off-shift too - a meeting outside someone's hours
+   still shows on the grid (see consequence B), but the sidebar keeps saying
+   offline, because "booked" and "here" are different claims.
+
+3. OVERLAP ROW ACCOUNTS FOR MEETINGS — yes, and STRICT, identical to the
+   Phase 2 lunch rule: any meeting touching an hour kills that whole hour for
+   the row, even a 15-minute one. This is nearly free rather than scope
+   creep - the overlap check already excludes carve-outs, so meetings arrive
+   as additional carve-outs in the same list. Without it the row would say
+   "everyone is free at 2pm" about a 2pm that's already booked, which is
+   worse than the feature not existing.
+
+4. CROSS-DAY — the VIEWER's local calendar day decides. Fetch meetings
+   overlapping the viewer's local today, draw each at its hour-of-day on the
+   viewer's clock, in every attendee's row. One meeting, one instant, one
+   column. A meeting that's tomorrow for you is simply not on today's grid
+   even if it's tonight in Tokyo.
+   Rejected per-attendee local day, despite it mirroring how SHIFTS resolve
+   (by the member's own weekday). That mirroring is a false friend: a shift
+   genuinely IS per-person wall-clock, so resolving it per-person is correct.
+   A meeting is one shared instant, so resolving it per-person would draw the
+   same meeting in some rows and not others, visually implying different
+   people are in different meetings. The grid header already says "Viewer
+   TZ" - this makes that honest for meetings too.
+
+CONSEQUENCE A - carve-outs become a LIST, not a single value. A member can
+have a standing lunch and a meeting inside the same hour cell. `ScheduleCell`
+takes one `carve` today; it needs an array, and the gradient builder needs to
+walk sorted, non-overlapping-by-construction slices. This is the generic
+carve-out rendering earning its keep, but it is a real change to the
+component, not a free inherit.
+
+CONSEQUENCE B - a meeting can fall OUTSIDE a member's shift hours; a lunch
+never can (the API rejects one). `ScheduleCell` currently only paints a carve
+when `isActive`, so a 9pm meeting would silently not render - which is
+exactly the booking most worth seeing. The carve gate stops keying off
+`isActive` and keys off the carve itself; a carve on an idle cell reads as
+"booked outside their hours," which is the true statement.
+
+## COMPLETED — Hours editor timezone context + carve-out tick fix (8/2)
+Closes the HoursEditor "which day is today for them" known issue from 7/31.
+Tim hit the same confusion independently during Phase 2 QA, which is a decent
+signal it was the right thing to fix.
+
+The reframing that made it better than the logged fix: the root problem isn't
+the missing highlight, it's that THE FORM NEVER SAID WHOSE CLOCK THE INPUTS
+ARE IN. They're the member's own local wall-clock time, so an admin setting
+09:00-17:00 for a Sydney member is setting HER 9am. Everything else about the
+confusion follows from that being unstated.
+- Admin mode gets a header panel: whose local time the inputs are in, their
+  timezone, their current day+time, yours, and the live offset between you.
+  Self mode skips it - "times are in your local time" on your own page is
+  noise.
+- An amber line appears ONLY when the two clocks disagree about the date,
+  which is the exact case that caused the 7/31 mis-edit.
+- The weekday row matching `now.tz(target.timezone).day()` is outlined and
+  labelled "today for them" (self mode: "today").
+- Offset is computed live from two moments, never stored - the gap changes
+  twice a year and the two ends rarely switch on the same date, so
+  Sydney-to-Chicago is 15, 16 or 17 hours depending on the week.
+- Clocks read `now` from TeamContext (ticks with the poll) rather than
+  calling dayjs() at render, so they stay live on an open tab. That matters
+  most in precisely the situation this display exists for.
+- A bad timezone string on a member degrades to "no header, no highlight"
+  rather than throwing - dayjs throws on unknown zones.
+- REJECTED: reordering rows to start on the target's today. A stable
+  Monday-first week is easier to scan than one that shuffles under you.
+
+Also fixed the carve-out tick marks: the repeating-linear-gradient had a unit
+of `25% + 1px`, so each tick drifted a pixel right of the last and the pattern
+wrapped far enough to paint a spurious FOURTH line near the cell edge. Four
+slightly-off lines read as a rendering glitch. Now three explicit stops.
+
+SAFETY FIX found by code review, not by testing: when the GET failed,
+HoursEditor still rendered the form - prefilled with a complete, plausible
+default 9-5 week - with Save enabled. Saving from that state would write
+defaults over the member's real hours. The form is now replaced by an error
+panel with a Try again button (a reloadToken in the effect deps, since
+targetId hasn't changed and nothing else would refire the fetch). Pre-existing
+hazard, not introduced by Phase 2.
+
+## COMPLETED — Overnight shifts now actually accepted (8/2)
+Found in Phase 2 QA: entering a Sunday 20:00-05:00 shift errored with "start
+time must be before end time". Not a Phase 2 regression - the rule came from
+the old AddTeamMemberForm and was carried verbatim into the new backend
+validator, with a comment noting it as a deliberate limitation.
+
+It wasn't defensible on inspection. The RENDERING side always supported
+overnight: getScheduleState treats them as a union of two pieces, HourRange
+carries isOvernight, isHourInRange handles the wrap, and all of it was tested.
+The README lists cross-midnight handling as a core design constraint. So the
+form was refusing data the app could display correctly - a contradiction, not
+a scope decision.
+
+THE TRICK, in both validators: measure durations FORWARD with a wrap
+(`(end - start + 1440) % 1440`) instead of subtracting, and express break
+containment as OFFSETS FROM THE SHIFT START rather than absolute clock times.
+In offset space an overnight shift is just a 0..length range again, so the
+wrap stops leaking into every comparison. Equal start and end gives 0, NOT 24
+hours - an all-day shift conjured from a typo is worse than an error.
+
+- `validateShiftTimes` allows start > end; still on-the-hour and >=60min.
+  New "start and end time cannot be the same" message replaces the old
+  start >= end rejection.
+- `validateBreakTimes` containment is offset-based, so a lunch may itself
+  cross midnight inside an overnight shift. On a SAME-DAY shift a backwards
+  break still gets the pointed "break start must be before break end"; on an
+  overnight shift that comparison is meaningless (23:45-00:15 is legitimately
+  backwards on the clock) so it falls through to the containment check.
+- `getScheduleState`'s break test gained the same union treatment its shift
+  test already had. The old `breakStart < breakEnd` guard meant a
+  midnight-crossing lunch silently never registered as on-break.
+- HoursEditor mirrors all of it, now in plain minute math - `dayjs` is no
+  longer imported there at all.
+- Tests: 8 new cases in scheduleTime.test.ts built around the reference case
+  (Sunday 20:00-05:00 shift with a 23:45-00:15 lunch - a midnight lunch inside
+  a midnight-crossing shift), 68/68 green. Backend harness 26/26 including
+  overnight containment at both edges.
+
+## COMPLETED — Lint cleanup: 14 errors to 0 (8/2, committed cf2667b)
+Surfaced right after Phase 2, but ALL 14 pre-dated it - proven by the flagged
+files having an empty diff against HEAD. Cause is a dependency bump, not new
+code: `eslint-plugin-react-hooks` is on v7, whose recommended config added the
+React Compiler-era effect rules (`set-state-in-effect`). Caret ranges in
+package.json mean a plain `npm install` pulls these in. The "lint clean" notes
+on the Phase 0/1 entries were written before that.
+
+Three of the fixes turned out to be real bugs hiding behind `any`:
+- `TeamContext.setStatus` read `previousStatus` off an optional `.find()`, so
+  a member missing from the list (deleted in another session between render
+  and click) would roll back to `status: undefined`, writing a broken member
+  object. Now bails early. Invisible while `members` was `any[]`.
+- `HoursEditor`'s load effect had no cancellation, so a slow response for a
+  previous target could land after an admin switched members and overwrite the
+  newer data. Now guarded.
+- Same effect merged fetched days over the PREVIOUS target's `week` state
+  (`setWeek(prev => ...)`), so switching members inherited rows the new member
+  had no record for. Now starts from a fresh `emptyWeek()`.
+
+Changes:
+- `now: any` / `members: any[]` / `viewerMember: any` in `TeamContextType` are
+  properly typed. The old comment claimed `any` was forced because this file
+  is hand-mirrored on the backend - but `TeamContextType` has NO backend
+  counterpart (only TeamMember / RecurringShift / DayOfWeek do), so importing
+  `Dayjs` costs nothing.
+- API responses are parsed as `unknown` and narrowed with `Array.isArray`
+  rather than asserted into the happy-path shape - both endpoints return a
+  `{ message }` object on failure.
+- FAST REFRESH: `useAuth`/`useTeam` moved into new `context/useAuth.ts` and
+  `context/useTeam.ts` alongside their context objects, so the provider
+  modules export only components. A module exporting both a component and a
+  hook forces a full remount on every edit, which in practice means losing
+  your logged-in session mid-development. 13 import sites updated.
+  Named `useAuth.ts` NOT `authContext.ts` deliberately - Windows is
+  case-insensitive and `authContext.ts` would collide with `AuthContext.tsx`.
+- `HoursEditor` loading state is now DERIVED (`loadedFor !== targetId`)
+  instead of a `useState` set synchronously at the top of the effect. That
+  second render pass before paint is exactly what the new rule flags, and
+  deriving reads better anyway: "loading" IS "the data on screen isn't for
+  this member yet."
+- Unused `err` catch bindings dropped (ES2019 optional catch binding).
+- `npx tsc --noEmit` clean, `npx eslint` clean, harness still 60/60.
+
+## COMPLETED — Phase 2: recurring lunch break (8/2)
+Standing daily break as optional `breakStart`/`breakEnd` on `RecurringShift`,
+plus the generic carve-out rendering that Phase 3's meetings inherit.
+
+DECISION - granularity: breaks land on a QUARTER hour (`:00/:15/:30/:45`);
+shift times stay on-the-hour. The two rules differ because the grid treats
+them differently: a shift boundary decides whether a whole cell lights up, so
+it can't be finer than a cell, but a break is drawn as a fractional fill
+INSIDE its cell and can be. Rejected "on-the-hour only" (can't express a
+30-minute lunch, which is the common case) and "any minute" (widest gap
+between stored data and what's drawn, and inconsistent with shift validation).
+
+DECISION - rendering: cells take a FRACTION, not a half. `ScheduleCell` paints
+a hard-stop gradient from `carveOutFractionInHour`, so a 12:00-12:30 lunch
+fills the left half of the 12:00 cell. Quarter-hour tick marks are drawn ONLY
+on cells that contain a carve-out - a permanent ruler across all 24 columns of
+every row was the alternative and it buries the "read availability in two
+seconds" constraint under ~500 hairlines. Fractions (not halves) is what makes
+this reusable: Phase 3's meetings are arbitrary instants (2:15-2:45) and a
+half-only renderer would need rewriting.
+
+DECISION - status: NEW derived-only `break` status ('At lunch', amber), not a
+reuse of `away`. Non-settable exactly like `offline` - omitted from the picker
+and from `SETTABLE_STATUSES`, which is an allowlist so the API rejects it
+without needing to know it exists. It is also deliberately ABSENT from the
+TeamMember schema enum (unlike `offline`): nothing ever writes it, so letting
+the DB accept it would only create a way for the value to get stuck in a
+document that no schedule change could clear. Reusing `away` would have meant
+the grid drawing a lunch explicitly while the sidebar told a vaguer story
+about the same fact.
+
+DECISION - overlap row is STRICT: any carve-out touching an hour kills that
+whole hour, even a 15-minute one. Losing 45 usable minutes is cheaper than
+suggesting a slot that lands on someone's lunch, which is the exact problem
+this feature exists to fix. A half-lit overlap cell would imply bookable time
+the row isn't asserting.
+
+Full status precedence after this phase:
+  1. no recent heartbeat -> 'offline'
+  2. off-shift           -> 'offline'
+  3. in a standing break -> 'break'    (NEW)
+  4. whatever they set   -> as-is
+  5. never set anything  -> 'away'
+The break sits BELOW the heartbeat on purpose: a lunch window is a PLAN, the
+heartbeat is EVIDENCE. If the laptop has been shut an hour, "at lunch" would
+dress up an absence as a scheduled one.
+
+- Model: optional `breakStart`/`breakEnd` on `RecurringShift`, mirrored by hand
+  into both type files. `getCurrentShiftForMember` drops a HALF-set pair rather
+  than passing a one-ended window along (old documents predate the API rule).
+- `scheduleTime.ts`: new `CarveOut` type (fractional hours, viewer tz), plus
+  `resolveBreakCarveOutInViewerTz` and `carveOutFractionInHour`. `CarveOut`
+  says nothing about lunch on purpose - meetings produce the same shape.
+  `getScheduleState` gains `on-break`, checked AFTER the shift test passes so
+  it can only ever refine on-shift, never contradict off-shift.
+- New `frontend/src/components/ScheduleCell.tsx` - the one place a cell is
+  drawn. Member rows and the overlap row both render through it. Knows nothing
+  about lunches; takes a fraction and paints it.
+- BACKEND VALIDATION GAP CLOSED (was in KNOWN ISSUES since 7/24): new
+  `backend/src/utils/shiftValidation.ts` enforces the three shift rules
+  server-side (start<end, on-the-hour, >=60min) plus the break rules
+  (both-or-neither, quarter-hour, inside the shift, none on an off day).
+  Note it rejects OVERNIGHT standing shifts, which `scheduleTime.ts` renders
+  fine - a deliberate carry-over of the existing HoursEditor rule, since no UI
+  can produce one and allowing it through the API would create data no form
+  could edit back.
+- The PUT route now `$unset`s the break pair whenever a payload omits it -
+  without that, removing a lunch in the editor would leave the old window in
+  the document forever, since `$set` only ever adds.
+- DEAD CODE REMOVED: `/api/work-shifts` mount, the route import, and the
+  `WorkShift` interface in both type files. THE TWO FILES THEMSELVES STILL
+  NEED DELETING BY HAND - see START HERE above.
+- CORRECTION to the phase brief: it claimed `migrateToRecurringShifts.ts`
+  reads the raw Mongo collection and so would survive the model's deletion.
+  It did NOT - it imported `WorkShiftModel`, and deleting the model would
+  have broken the script. Rewritten to go through
+  `mongoose.connection.collection('workshifts')`, which is what
+  `migrateStatus.ts` already did and what makes a migration outlive the schema
+  it migrates away from. Worth remembering for Phase 3: check what a "template"
+  actually does before trusting a doc that says it's safe.
+- TWO BUGS the new tests caught, both now fixed: (1) `carveOutFractionInHour`
+  returned null for every overnight carve-out - an overnight window is two
+  segments, not one with a wrapped end, and clamping it as a single range
+  goes negative and collapses to zero width. (2) `dayjs.tz()` THROWS on an
+  unparseable string rather than returning an invalid instance, so the
+  `isValid()` guard after it never ran - a malformed break in the DB would
+  have taken the whole grid down. Shape-checked with a regex before dayjs
+  sees it now.
+- Tests: 26 new cases in `scheduleTime.test.ts` (break layer in
+  getScheduleState, break passthrough + half-set drop, carve-out tz
+  conversion, fractional cell math, overnight splits, malformed fallbacks,
+  break precedence in resolveDisplayStatus), 60/60 green via the compiled-JS
+  harness. Backend validation checked separately with a throwaway harness,
+  17/17. RUN `npm run test:run` ON WINDOWS to confirm under real Vitest.
+- `npx tsc --noEmit` clean in frontend; backend clean except the two files
+  awaiting manual deletion. ESLint wouldn't finish in the sandbox (times out)
+  - run `npm run lint` on Windows.
+
+## COMPLETED — Phase 1: polling + heartbeat presence (7/31, verified 8/2)
 Closes both live-sync bugs logged 7/25 (see KNOWN ISSUES, now removed).
 - Backend: `lastSeenAt?: Date` added to `TeamMember` (model + both mirrored
   type files). Stamped on authenticated `GET /api/team-members` - that route
@@ -59,13 +542,12 @@ Closes both live-sync bugs logged 7/25 (see KNOWN ISSUES, now removed).
   signature. Vitest still can't run in the Linux sandbox (native bindings) -
   verified via a throwaway compiled-JS harness instead (10/10 green,
   including the pre-existing cases re-checked under the new signature).
-  RUN `npm run test:run` ON WINDOWS to confirm.
+  CONFIRMED 8/2: `npm run test:run` green on Windows under real Vitest.
 - `npx tsc -b` clean both sides, `npm run lint` clean in frontend.
-- STILL NEEDED (Tim, manual QA): two browser profiles logged in as different
-  members - confirm a status change in one shows in the other within ~15s;
-  leave a tab open across a shift-end boundary and confirm it flips to
-  offline without a reload; close one profile entirely and confirm it derives
-  offline in the other within ~45s.
+- VERIFIED 8/2 (Tim, manual QA): two browser profiles logged in as different
+  members - a status change in one showed in the other within ~15s; a tab left
+  open across a shift-end boundary flipped to offline without a reload; closing
+  one profile derived offline in the other within ~45s. All as designed.
 
 ## COMPLETED — Phase 0: config extraction (7/31)
 Prerequisite for deploying anywhere other than localhost, pulled out so the
@@ -89,9 +571,15 @@ Phase 1 polling diff stays readable.
   clean in frontend. Grepped for localhost:5000/5173 - only the two
   fallback defaults (config.ts, server.ts) and the .env.example files
   remain.
-- STILL NEEDED: Tim to run both dev servers with no .env files present and
-  confirm login still works (auth cookie is what breaks silently if a URL
-  is wrong).
+- VERIFIED 8/2: the fallbacks were already load-bearing, so no separate test
+  was needed. `frontend/.env` doesn't exist (only `.env.example`), and
+  `backend/.env` never had CORS_ORIGIN or PORT in it - so VITE_API_URL,
+  CORS_ORIGIN, and PORT were ALL running on their defaults throughout the
+  Phase 1 two-profile QA, login and auth cookie included.
+  NOTE: the original wording here ("run with no .env files present") was
+  misleading - MONGODB_URI and JWT_SECRET are non-null-asserted with no
+  fallback, so the backend cannot start without a .env at all. Only
+  CORS_ORIGIN / PORT / VITE_API_URL are optional.
 
 ## DECISIONS — live presence, breaks, meetings (7/25)
 Design session, no code. Started as "build break logging," ended up
@@ -682,16 +1170,72 @@ Biggest of the three, and the only one with a genuinely new concept in it.
   whom, does an in-progress meeting affect displayed status (compare the
   lunch precedence), and does the overlap row account for booked meetings
 
+### PHASE 3 ADDON — show each member's timezone in the sidebar
+Small, do it alongside Phase 3 rather than as its own workstream.
+
+TeamStatusSidebar already shows each member's current local time ("10:41 AM")
+but never says WHICH zone that is, so it reads as a bare number with no way to
+tell whether someone is an hour ahead or fifteen. The data is already on the
+member record and already fetched - this is a label, not a feature.
+
+Show the zone next to the clock (e.g. "10:41 AM · Sydney"). Prefer the short
+city form over the raw IANA string - "Australia/Sydney" is noise at that size.
+Worth deriving rather than storing: split the IANA string on '/' and take the
+last segment with underscores replaced, so "America/New_York" reads
+"New York". Do NOT introduce a second stored field for it - one source of
+truth for a member's zone, same reasoning as everything else here.
+
+Relevant to Phase 3: once meetings exist, "what time is this for them" becomes
+the question the sidebar is most often asked, and an unlabelled clock can't
+answer it.
+
 ### AFTER
-4. Retire the viewerId "Simulating Active User" dropdown - see KNOWN ISSUES
-   below. Now the only remaining piece of pre-auth simulation code.
-   Phase 1 may make this more urgent: once presence is real, "simulating"
-   another user is a more confusing affordance than it already was.
+
+4. DESIGN PASS, then RETIRE viewerId, then final testing. Sequenced that way
+   deliberately - see the plan below. Both were previously listed as separate
+   loose items; they're coupled.
+
+   Step 1 - design pass (button colors, card polish, the bg-zinc-800-on-
+   bg-zinc-800 input issue in AddTeamMemberForm, see KNOWN ISSUES). Do this
+   FIRST because it's the last point where moving UI around is cheap, and the
+   sidebar is one of the things being touched.
+
+   Step 2 - retire the "Simulating Active User" dropdown. This is not just
+   deleting a <select>: viewerId currently drives WHICH TIMEZONE THE WHOLE
+   GRID RENDERS IN (TeamContext.viewerTimezone -> ScheduleGrid's conversion).
+   Removing the control without replacing that source leaves the grid with no
+   timezone at all. The plan:
+     a. Point viewerTimezone at real auth instead - resolve the logged-in
+        member via AuthContext.teamMemberId, use THEIR stored timezone, and
+        fall back to the browser's zone (dayjs.tz.guess()) if that member
+        isn't loaded yet or has no zone set. The fallback matters: the grid
+        must always have a zone to convert into.
+     b. Delete viewerId / setViewer / viewerMember from TeamContext and
+        TeamContextType, and the <select> from TeamStatusSidebar.
+     c. Sweep for remaining readers - `viewerTimezone` is used by
+        ScheduleGrid and TeamHoursPanel and should keep working untouched if
+        (a) is done properly. That's the test: if those two files need edits,
+        the replacement isn't clean.
+     d. REPLACE the dropdown with a small profile block in the same spot: an
+        avatar/initials icon, the logged-in member's name, their current local
+        time, and their timezone. Not just a deletion - that corner of the
+        sidebar currently answers "whose clock is this grid in?", and the grid
+        stays timezone-converted after the dropdown goes, so the question
+        outlives the control. A static identity block answers it honestly
+        where a picker implied you could change it.
+        Reuse the timezone label format from the sidebar addon above, and
+        read the clock from TeamContext's ticking `now` rather than dayjs()
+        at render, so it stays live (same reasoning as HoursEditor).
+   Once presence is real (Phase 1) and meetings exist (Phase 3), "simulating"
+   another user is actively misleading rather than merely vestigial - it
+   implies you can act as them, which auth has correctly forbidden since 7/18.
+
+   Step 3 - final testing pass, AFTER both of the above. Doing it earlier
+   means testing a UI that's about to change and a timezone source that's
+   about to be replaced.
 
 5. Deploy to Render + Atlas (see deployment research above). Could happen
    any time after Phase 0; earlier is better for testing Phase 1 properly.
-
-6. Design pass - see KNOWN ISSUES below.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
@@ -700,23 +1244,6 @@ Biggest of the three, and the only one with a genuinely new concept in it.
   editing now keys off real auth (AuthContext.teamMemberId), but viewerId
   still drives which timezone the grid renders in. Fully retiring the
   dropdown (or pointing the tz preview at real auth) is still outstanding.
-- ScheduleGrid (via getCurrentShiftForMember) resolves exactly one STANDING
-  shift per member (today's dayOfWeek RecurringShift). Correct for standing
-  hours as-is. Layering a same-day carve-out on top arrives with the
-  recurring lunch break (Phase 2) - getCurrentShiftForMember is the single
-  place that stitch happens. (Was previously blocked on the ad-hoc break
-  logging UI, which is now cut.)
-- DEAD CODE: the WorkShift model and /api/work-shifts routes have had no
-  reader since the Phase 4/5 recurring cutover, and cutting ad-hoc breaks
-  removed their last planned use. Delete in Phase 2.
-- SHIFT TIMES ARE ONLY VALIDATED CLIENT-SIDE (noticed 7/24). ScheduleGrid
-  renders whole-hour blocks, so shifts must start/end on the hour and run
-  at least an hour - but that rule lives only in HoursEditor's handleSave.
-  PUT /api/team-members/:id/hours checks only that working days HAVE a
-  startTime and endTime, not their shape. Anything hitting the API directly
-  can store 09:30 and the grid will silently misrender it. The backend
-  should enforce the same three rules (start<end, on-the-hour, >=60min);
-  low urgency while the only client is our own form, but it's a real gap.
 - FirstRunHoursGate dismissal is in-memory only, so it returns on every
   reload until hours are actually set. Deliberate (non-blocking, not
   "seen once, gone forever"), but revisit if it turns out to be annoying

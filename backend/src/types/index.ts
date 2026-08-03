@@ -1,13 +1,14 @@
 // The presence states a member can be in. Stored as a plain string in Mongo
 // (readable in the DB, no lookup table). 'active' is the old "available".
 //
-// Two of these are DERIVED and never stored: 'offline' (off shift or no
-// heartbeat) and 'break' (inside a standing lunch). Neither appears in
-// SETTABLE_STATUSES, so the API rejects them. Note 'break' is also absent from
-// the TeamMember schema's enum, unlike 'offline' - nothing ever writes it, so
-// letting the DB accept it would only create a way for the value to get stuck
-// in a document where no schedule change could clear it.
-export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline' | 'break';
+// Three of these are DERIVED and never stored: 'offline' (off shift or no
+// heartbeat), 'break' (inside a standing lunch) and 'meeting' (a booked
+// meeting is in progress). None appears in SETTABLE_STATUSES, so the API
+// rejects them. Note 'break' and 'meeting' are also absent from the TeamMember
+// schema's enum, unlike 'offline' - nothing ever writes them, so letting the
+// DB accept them would only create a way for the value to get stuck in a
+// document where no schedule change could clear it.
+export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline' | 'break' | 'meeting';
 
 // Core type for a team member - defines the shape of data for availability
 export interface TeamMember {
@@ -52,4 +53,34 @@ export interface RecurringShift {
   breakStart?: string;    // HH:mm
   breakEnd?: string;      // HH:mm
   isOff: boolean;
+}
+
+/**
+ * A single booked meeting. READ THE TIME NOTE BEFORE TOUCHING THIS.
+ *
+ * `startsAt` / `endsAt` are UTC INSTANTS, not wall-clock strings. Every other
+ * time field in this project (shift times, break times) is an `HH:mm` string
+ * with no date and no offset, because a standing "9am" is a different instant
+ * for each person - it means 9am wherever they are. A meeting is the opposite:
+ * ONE instant that reads as a different wall-clock time for each attendee.
+ *
+ * Mixing the two is the classic scheduling bug, and it is quiet - it looks
+ * correct for everyone in the author's timezone and is wrong by their offset
+ * for everyone else. So: never format one of these to HH:mm and hand it to
+ * anything that takes shift times, and never build one out of an HH:mm string
+ * without pinning it to a real date in a real zone first.
+ *
+ * `attendeeIds` is the full attendee list including whoever created it - the
+ * create route requires the caller to be in it (admins excepted), so "my
+ * meetings" is a query on this array, not on createdBy.
+ */
+export interface Meeting {
+  _id?: string;
+  title: string;
+  startsAt: Date;   // UTC instant
+  endsAt: Date;     // UTC instant
+  attendeeIds: (string | TeamMember)[];
+  // Who booked it. Kept separately from the attendee list purely so delete
+  // can be creator-or-admin; it is NOT a membership signal.
+  createdBy: string | TeamMember;
 }

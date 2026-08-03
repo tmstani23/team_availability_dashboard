@@ -18,13 +18,18 @@ export const STATUS_META: Record<TeamMemberStatus, { label: string; short: strin
   // draws the lunch explicitly, and a sidebar that said only "Away" would be
   // telling a vaguer story about the same fact.
   break:   { label: 'At lunch',       short: 'Lunch',   pill: 'bg-amber-500/15 text-amber-400 border-amber-500' },
+  // Derived from a booked meeting overlapping right now, never stored. Violet
+  // deliberately matches the overlap row's color: that row is where meetings
+  // get found and booked, so the pill and the thing that produced it read as
+  // the same feature rather than two unrelated purple-ish states.
+  meeting: { label: 'In a meeting',   short: 'Meeting', pill: 'bg-violet-500/15 text-violet-300 border-violet-500' },
 };
 
 // The states a user can pick by hand, in the order the picker shows them.
-// 'offline' and 'break' are omitted on purpose - both are schedule-derived,
-// not manually settable, mirroring the backend's SETTABLE_STATUSES guard on
-// /status (which is an allowlist, so it rejects them without needing to know
-// they exist).
+// 'offline', 'break' and 'meeting' are omitted on purpose - all three are
+// schedule-derived, not manually settable, mirroring the backend's
+// SETTABLE_STATUSES guard on /status (which is an allowlist, so it rejects
+// them without needing to know they exist).
 export const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
 
 /**
@@ -33,9 +38,21 @@ export const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
  *
  *   1. no recent heartbeat -> 'offline'  (derived; they are not here - Phase 1)
  *   2. off-shift            -> 'offline'  (derived; overrides whatever they set)
- *   3. in a standing break  -> 'break'    (derived - NEW, Phase 2)
- *   4. whatever they set    -> as-is      (on-shift, or schedule unknown)
- *   5. never set anything   -> 'away'
+ *   3. in a booked meeting  -> 'meeting'  (derived - NEW, Phase 3)
+ *   4. in a standing break  -> 'break'    (derived - Phase 2)
+ *   5. whatever they set    -> as-is      (on-shift, or schedule unknown)
+ *   6. never set anything   -> 'away'
+ *
+ * Why meeting sits ABOVE break at (3): both are plans, but one is specific and
+ * dated while the other is a weekly default. Someone who booked a meeting
+ * across their usual lunch hour has, by booking it, said which of the two is
+ * actually happening.
+ *
+ * Why meeting sits BELOW the heartbeat and off-shift: same reason break does.
+ * A booking is a plan and the heartbeat is evidence, so a laptop shut for an
+ * hour shouldn't render as a meeting in progress. And a meeting booked outside
+ * someone's working hours still DRAWS on the grid (that's worth seeing) while
+ * the pill keeps saying offline - "booked" and "here" are different claims.
  *
  * Why the break sits BELOW the heartbeat at (3) rather than above it: a lunch
  * window is a plan, and the heartbeat is evidence. If someone's laptop has
@@ -81,6 +98,12 @@ export const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
 export function resolveDisplayStatus(
   storedStatus: TeamMemberStatus | undefined,
   scheduleState: ScheduleState,
+  // Whether a booked meeting overlaps right now. Passed in as a plain boolean
+  // rather than folded into ScheduleState because ScheduleState describes a
+  // member's STANDING hours, which meetings are not part of - they're separate
+  // records on a different time model (instants, not wall clocks). Keeping
+  // them separate here is what stops that distinction blurring.
+  inMeeting: boolean,
   lastSeenAtMs: number | undefined,
   nowMs: number,
   staleThresholdMs: number
@@ -90,6 +113,7 @@ export function resolveDisplayStatus(
   if (heartbeatStale) return 'offline';
 
   if (scheduleState === 'off-shift') return 'offline';
+  if (inMeeting) return 'meeting';
   if (scheduleState === 'on-break') return 'break';
   return storedStatus ?? 'away';
 }

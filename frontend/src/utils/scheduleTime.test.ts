@@ -6,6 +6,10 @@ import type { RecurringShift } from '../types';
 import {
   resolveHourRangeInViewerTz,
   resolveBreakCarveOutInViewerTz,
+  resolveMeetingCarveOutInViewerTz,
+  viewerDayWindow,
+  isMeetingInProgress,
+  meetingsForMember,
   carveOutFractionInHour,
   getCurrentShiftForMember,
   getScheduleState,
@@ -344,29 +348,29 @@ describe('resolveDisplayStatus', () => {
 
   it('derives offline when off shift, overriding whatever was set', () => {
     // The stale-claim case: they clicked Active this morning and left.
-    expect(resolveDisplayStatus('active', 'off-shift', undefined, NOW, STALE)).toBe('offline');
-    expect(resolveDisplayStatus('dnd', 'off-shift', undefined, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus('active', 'off-shift', false, undefined, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus('dnd', 'off-shift', false, undefined, NOW, STALE)).toBe('offline');
   });
 
   it('respects the stored status while on shift', () => {
-    expect(resolveDisplayStatus('active', 'on-shift', undefined, NOW, STALE)).toBe('active');
-    expect(resolveDisplayStatus('dnd', 'on-shift', undefined, NOW, STALE)).toBe('dnd');
-    expect(resolveDisplayStatus('away', 'on-shift', undefined, NOW, STALE)).toBe('away');
+    expect(resolveDisplayStatus('active', 'on-shift', false, undefined, NOW, STALE)).toBe('active');
+    expect(resolveDisplayStatus('dnd', 'on-shift', false, undefined, NOW, STALE)).toBe('dnd');
+    expect(resolveDisplayStatus('away', 'on-shift', false, undefined, NOW, STALE)).toBe('away');
   });
 
   it('does NOT derive offline when the schedule is unknown', () => {
     // No hours on file is not evidence they are off - asserting offline here
     // would be an unearned claim. The "Hours not set" label carries this.
-    expect(resolveDisplayStatus('active', 'unknown', undefined, NOW, STALE)).toBe('active');
+    expect(resolveDisplayStatus('active', 'unknown', false, undefined, NOW, STALE)).toBe('active');
   });
 
   it('falls back to away when nothing was ever set', () => {
     // 'active' is a claim only the person can make, so an absent value means
     // "no signal yet" - matching the TeamMember schema default.
-    expect(resolveDisplayStatus(undefined, 'unknown', undefined, NOW, STALE)).toBe('away');
-    expect(resolveDisplayStatus(undefined, 'on-shift', undefined, NOW, STALE)).toBe('away');
+    expect(resolveDisplayStatus(undefined, 'unknown', false, undefined, NOW, STALE)).toBe('away');
+    expect(resolveDisplayStatus(undefined, 'on-shift', false, undefined, NOW, STALE)).toBe('away');
     // ...but a known off-shift still wins over the fallback.
-    expect(resolveDisplayStatus(undefined, 'off-shift', undefined, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus(undefined, 'off-shift', false, undefined, NOW, STALE)).toBe('offline');
   });
 
   describe('heartbeat layer (Phase 1)', () => {
@@ -374,23 +378,23 @@ describe('resolveDisplayStatus', () => {
       // The case the layer exists for: shift says they should be here, they
       // last claimed 'active', but nothing has pinged the server in a while.
       const staleSeen = NOW - STALE - 1;
-      expect(resolveDisplayStatus('active', 'on-shift', staleSeen, NOW, STALE)).toBe('offline');
+      expect(resolveDisplayStatus('active', 'on-shift', false, staleSeen, NOW, STALE)).toBe('offline');
     });
 
     it('does NOT derive offline right at the threshold, only once past it', () => {
       // Exactly STALE ms old is still within grace (comparison is strictly
       // greater-than) - avoids flapping someone offline on a borderline poll.
       const atThreshold = NOW - STALE;
-      expect(resolveDisplayStatus('active', 'on-shift', atThreshold, NOW, STALE)).toBe('active');
+      expect(resolveDisplayStatus('active', 'on-shift', false, atThreshold, NOW, STALE)).toBe('active');
 
       const pastThreshold = NOW - STALE - 1;
-      expect(resolveDisplayStatus('active', 'on-shift', pastThreshold, NOW, STALE)).toBe('offline');
+      expect(resolveDisplayStatus('active', 'on-shift', false, pastThreshold, NOW, STALE)).toBe('offline');
     });
 
     it('a fresh heartbeat does not override off-shift or the stored status', () => {
       const freshSeen = NOW - 5000;
-      expect(resolveDisplayStatus('active', 'off-shift', freshSeen, NOW, STALE)).toBe('offline');
-      expect(resolveDisplayStatus('dnd', 'on-shift', freshSeen, NOW, STALE)).toBe('dnd');
+      expect(resolveDisplayStatus('active', 'off-shift', false, freshSeen, NOW, STALE)).toBe('offline');
+      expect(resolveDisplayStatus('dnd', 'on-shift', false, freshSeen, NOW, STALE)).toBe('dnd');
     });
 
     it('never-logged-in (no lastSeenAt at all) falls through instead of deriving offline', () => {
@@ -398,8 +402,8 @@ describe('resolveDisplayStatus', () => {
       // ABSENCE of information, not evidence of one. A member an admin just
       // created, who has never logged in, should read as their stored
       // status (defaulting to away), not offline.
-      expect(resolveDisplayStatus('active', 'on-shift', undefined, NOW, STALE)).toBe('active');
-      expect(resolveDisplayStatus(undefined, 'unknown', undefined, NOW, STALE)).toBe('away');
+      expect(resolveDisplayStatus('active', 'on-shift', false, undefined, NOW, STALE)).toBe('active');
+      expect(resolveDisplayStatus(undefined, 'unknown', false, undefined, NOW, STALE)).toBe('away');
     });
   });
 });
@@ -596,22 +600,22 @@ describe('resolveDisplayStatus - break layer (Phase 2)', () => {
     // Same reasoning as off-shift overriding a stored status, just narrower:
     // someone who clicked Active this morning and is now in their standing
     // lunch is not available, and the stored value is the stalest thing here.
-    expect(resolveDisplayStatus('active', 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
-    expect(resolveDisplayStatus('dnd', 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
-    expect(resolveDisplayStatus(undefined, 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus('active', 'on-break', false, NOW - 1000, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus('dnd', 'on-break', false, NOW - 1000, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus(undefined, 'on-break', false, NOW - 1000, NOW, STALE)).toBe('break');
   });
 
   it('a stale heartbeat still wins over the break', () => {
     // A lunch window is a PLAN; the heartbeat is EVIDENCE. If the laptop has
     // been shut for an hour, "at lunch" would dress up an absence as a
     // scheduled one - offline is the more honest reading.
-    expect(resolveDisplayStatus('active', 'on-break', NOW - 60_000, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus('active', 'on-break', false, NOW - 60_000, NOW, STALE)).toBe('offline');
   });
 
   it('never-logged-in members still reach the break layer', () => {
     // undefined lastSeenAt is an absence of information, not staleness, so it
     // falls through the heartbeat layer to the schedule - same rule as Phase 1.
-    expect(resolveDisplayStatus('active', 'on-break', undefined, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus('active', 'on-break', false, undefined, NOW, STALE)).toBe('break');
   });
 });
 
@@ -693,5 +697,263 @@ describe('resolveBreakCarveOutInViewerTz - overnight shifts', () => {
     expect(carveOutFractionInHour(carve, 23)).toEqual({ start: 0.75, end: 1 });
     expect(carveOutFractionInHour(carve, 0)).toEqual({ start: 0, end: 0.25 });
     expect(carveOutFractionInHour(carve, 22)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 - MEETINGS. Instants, not wall clocks.
+//
+// Everything above this line tests wall-clock conversion: an HH:mm with no
+// date, pinned to today to get an offset. These test the mirror image - one
+// instant read on different clocks - and the two must never be confused. The
+// bug this whole block exists to catch is quiet by nature: mixing the models
+// looks perfectly correct for anyone in the author's timezone and is wrong by
+// their offset for everyone else, so "it worked when I tried it" proves
+// nothing. Hence the cross-timezone and DST pairs below being mandatory rather
+// than nice to have.
+//
+// Reference instant: 2026-07-15T18:00:00Z. On that ONE moment the clocks read:
+//   New York    2026-07-15 14:00  (EDT, -4)
+//   Los Angeles 2026-07-15 11:00  (PDT, -7)
+//   Tokyo       2026-07-16 03:00  (JST, +9 - note the DATE differs)
+// Verified against real dayjs output before being written down here.
+// ---------------------------------------------------------------------------
+
+const meeting = (startsAt: string, endsAt: string) => ({ startsAt, endsAt });
+
+describe('resolveMeetingCarveOutInViewerTz - cross-timezone', () => {
+  const REF = '2026-07-15T18:00:00Z';
+  const REF_END = '2026-07-15T19:00:00Z';
+
+  it('reads the SAME instant as a different hour in each viewer timezone', () => {
+    // The single most important assertion in this file. One meeting, one
+    // instant, three viewers, three different columns on the grid - and none
+    // of them is "wrong", which is exactly why a bug here is so hard to see.
+    const nyNow = dayjs.tz('2026-07-15 09:00', 'America/New_York');
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), 'America/New_York', nyNow))
+      .toEqual({ startHour: 14, endHour: 15, isOvernight: false });
+
+    const laNow = dayjs.tz('2026-07-15 09:00', 'America/Los_Angeles');
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), 'America/Los_Angeles', laNow))
+      .toEqual({ startHour: 11, endHour: 12, isOvernight: false });
+  });
+
+  it('lands on a different CALENDAR DAY for a far-enough viewer', () => {
+    // 18:00Z on the 15th is 3am on the 16th in Tokyo. For a Tokyo viewer whose
+    // "today" is the 16th, the meeting is on today's grid at hour 3 - while a
+    // New York viewer sees the same meeting on the 15th at 2pm. Both are
+    // right; this is the cross-day decision (viewer's local day wins) in
+    // action rather than a contradiction.
+    const tokyoNow = dayjs.tz('2026-07-16 09:00', 'Asia/Tokyo');
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), 'Asia/Tokyo', tokyoNow))
+      .toEqual({ startHour: 3, endHour: 4, isOvernight: false });
+  });
+
+  it('returns null when the meeting is not on the viewer\'s day at all', () => {
+    // Same instant, but the Tokyo viewer is now on the 15th - for them the
+    // meeting is tomorrow. Nothing to draw.
+    const tokyoDayBefore = dayjs.tz('2026-07-15 09:00', 'Asia/Tokyo');
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), 'Asia/Tokyo', tokyoDayBefore))
+      .toBeNull();
+  });
+
+  it('returns null without a viewer timezone, and survives a bad one', () => {
+    const now = dayjs.tz('2026-07-15 09:00', 'America/New_York');
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), undefined, now)).toBeNull();
+    // dayjs THROWS on an unknown zone rather than returning invalid, so this
+    // asserts the try/catch, not just a falsy return.
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF, REF_END), 'Mars/Olympus', now)).toBeNull();
+  });
+
+  it('returns null for malformed or backwards instants', () => {
+    const now = dayjs.tz('2026-07-15 09:00', 'America/New_York');
+    expect(resolveMeetingCarveOutInViewerTz(meeting('not-a-date', REF_END), 'America/New_York', now)).toBeNull();
+    expect(resolveMeetingCarveOutInViewerTz(meeting(REF_END, REF), 'America/New_York', now)).toBeNull();
+  });
+});
+
+describe('resolveMeetingCarveOutInViewerTz - DST boundaries', () => {
+  // THE DST PAIR. Both meetings are exactly two hours of real elapsed time,
+  // both in Chicago, both crossing a changeover - and they draw as different
+  // WIDTHS on the grid, because a wall clock is not a ruler.
+  //
+  // This is what proves each instant is converted at ITS OWN moment rather
+  // than the whole range being shifted by one offset looked up once. An
+  // implementation that grabbed the start's offset and applied it to both ends
+  // would give a clean 2-hour block in both cases and pass every same-day test
+  // in this file.
+
+  it('spring forward: a 2-hour meeting spans THREE wall-clock hours', () => {
+    // 2026-03-08, Chicago springs forward at 2am - 2am to 3am never happens.
+    // 07:00Z reads 01:00 CST; two hours later, 09:00Z reads 04:00 CDT.
+    const now = dayjs.tz('2026-03-08 09:00', 'America/Chicago');
+    expect(resolveMeetingCarveOutInViewerTz(
+      meeting('2026-03-08T07:00:00Z', '2026-03-08T09:00:00Z'),
+      'America/Chicago',
+      now
+    )).toEqual({ startHour: 1, endHour: 4, isOvernight: false });
+  });
+
+  it('fall back: a 2-hour meeting spans ONE wall-clock hour', () => {
+    // 2026-11-01, Chicago falls back at 2am - the 1am hour happens twice.
+    // 06:30Z reads 01:30 CDT; two hours later, 08:30Z reads 02:30 CST.
+    const now = dayjs.tz('2026-11-01 09:00', 'America/Chicago');
+    expect(resolveMeetingCarveOutInViewerTz(
+      meeting('2026-11-01T06:30:00Z', '2026-11-01T08:30:00Z'),
+      'America/Chicago',
+      now
+    )).toEqual({ startHour: 1.5, endHour: 2.5, isOvernight: false });
+  });
+});
+
+describe('resolveMeetingCarveOutInViewerTz - clamping to the viewer\'s day', () => {
+  // The clamp is what keeps the grid's hour-of-day columns honest: without it
+  // a meeting spilling over midnight would paint cells belonging to a
+  // different day.
+
+  it('trims a meeting that started yesterday', () => {
+    // 06:30Z = 23:30 on the 14th in LA, running to 00:30 on the 15th. For a
+    // viewer whose today is the 15th, only the last half hour is on screen.
+    const now = dayjs.tz('2026-07-15 09:00', 'America/Los_Angeles');
+    expect(resolveMeetingCarveOutInViewerTz(
+      meeting('2026-07-15T06:30:00Z', '2026-07-15T07:30:00Z'),
+      'America/Los_Angeles',
+      now
+    )).toEqual({ startHour: 0, endHour: 0.5, isOvernight: false });
+  });
+
+  it('reports a meeting ending exactly at midnight as hour 24, not hour 0', () => {
+    // Without this the carve-out would collapse to zero width (start 23, end
+    // 0) and the last hour of the day would silently draw as free.
+    const now = dayjs.tz('2026-07-15 09:00', 'America/Los_Angeles');
+    expect(resolveMeetingCarveOutInViewerTz(
+      meeting('2026-07-16T06:00:00Z', '2026-07-16T07:00:00Z'),
+      'America/Los_Angeles',
+      now
+    )).toEqual({ startHour: 23, endHour: 24, isOvernight: false });
+  });
+
+  it('a clamped carve-out never wraps, so it slices into cells normally', () => {
+    const now = dayjs.tz('2026-07-15 09:00', 'America/Los_Angeles');
+    const carve = resolveMeetingCarveOutInViewerTz(
+      meeting('2026-07-15T18:15:00Z', '2026-07-15T19:45:00Z'), // 11:15-12:45 LA
+      'America/Los_Angeles',
+      now
+    );
+    expect(carve).toEqual({ startHour: 11.25, endHour: 12.75, isOvernight: false });
+    // Reuses Phase 2's cell math untouched - that reuse is the point of
+    // meetings producing a CarveOut rather than a shape of their own.
+    expect(carveOutFractionInHour(carve, 11)).toEqual({ start: 0.25, end: 1 });
+    expect(carveOutFractionInHour(carve, 12)).toEqual({ start: 0, end: 0.75 });
+    expect(carveOutFractionInHour(carve, 13)).toBeNull();
+  });
+});
+
+describe('viewerDayWindow', () => {
+  it('returns the viewer\'s local midnight boundaries as instants', () => {
+    const now = dayjs.tz('2026-07-15 09:00', 'America/Los_Angeles');
+    expect(viewerDayWindow('America/Los_Angeles', now)).toEqual({
+      from: '2026-07-15T07:00:00.000Z',
+      to: '2026-07-16T07:00:00.000Z',
+    });
+  });
+
+  it('handles a 23-hour DST day (the reason it is not just +24h)', () => {
+    // Chicago's spring-forward day is 23 hours long, so next local midnight is
+    // 23 hours away, not 24. Adding a fixed 24 hours would put the window's
+    // end an hour into the following day and pull in tomorrow's early
+    // meetings.
+    const now = dayjs.tz('2026-03-08 09:00', 'America/Chicago');
+    expect(viewerDayWindow('America/Chicago', now)).toEqual({
+      from: '2026-03-08T06:00:00.000Z',
+      to: '2026-03-09T05:00:00.000Z',
+    });
+  });
+
+  it('returns null with no timezone', () => {
+    expect(viewerDayWindow(undefined)).toBeNull();
+  });
+});
+
+describe('isMeetingInProgress', () => {
+  const M = meeting('2026-07-15T18:00:00Z', '2026-07-15T19:00:00Z');
+
+  it('is half-open [start, end), matching every other range test here', () => {
+    expect(isMeetingInProgress(M, dayjs('2026-07-15T18:00:00Z'))).toBe(true);
+    expect(isMeetingInProgress(M, dayjs('2026-07-15T18:59:59Z'))).toBe(true);
+    // The end instant itself is already out - otherwise back-to-back meetings
+    // would both read as in progress for one shared moment.
+    expect(isMeetingInProgress(M, dayjs('2026-07-15T19:00:00Z'))).toBe(false);
+    expect(isMeetingInProgress(M, dayjs('2026-07-15T17:59:59Z'))).toBe(false);
+  });
+
+  it('needs no timezone at all - both sides are instants', () => {
+    // Same answer whichever zone the "now" is expressed in, because they are
+    // the same moment. This is the one presence question in the codebase that
+    // can't have a timezone bug.
+    expect(isMeetingInProgress(M, dayjs.tz('2026-07-15 14:30', 'America/New_York'))).toBe(true);
+    expect(isMeetingInProgress(M, dayjs.tz('2026-07-16 03:30', 'Asia/Tokyo'))).toBe(true);
+  });
+
+  it('is false for malformed instants rather than throwing', () => {
+    expect(isMeetingInProgress(meeting('nonsense', 'also nonsense'), dayjs())).toBe(false);
+  });
+});
+
+describe('resolveDisplayStatus - meeting layer (Phase 3)', () => {
+  const NOW = dayjs('2026-07-15T18:00:00Z').valueOf();
+  const STALE = 45_000;
+  const FRESH = NOW - 1000;
+
+  it('shows meeting, overriding whatever they set', () => {
+    expect(resolveDisplayStatus('active', 'on-shift', true, FRESH, NOW, STALE)).toBe('meeting');
+    expect(resolveDisplayStatus('dnd', 'on-shift', true, FRESH, NOW, STALE)).toBe('meeting');
+    expect(resolveDisplayStatus(undefined, 'on-shift', true, FRESH, NOW, STALE)).toBe('meeting');
+  });
+
+  it('outranks a standing lunch booked over', () => {
+    // Both are plans, but one is specific and dated and the other is a weekly
+    // default. Booking a meeting across your usual lunch says which is
+    // actually happening.
+    expect(resolveDisplayStatus('active', 'on-break', true, FRESH, NOW, STALE)).toBe('meeting');
+  });
+
+  it('loses to off-shift and to a stale heartbeat', () => {
+    // A booking is a plan; being outside your hours, or having gone quiet, is
+    // evidence. "Booked" and "here" are different claims - the meeting still
+    // DRAWS on the grid in this case, it just doesn't get to speak for the
+    // pill.
+    expect(resolveDisplayStatus('active', 'off-shift', true, FRESH, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus('active', 'on-shift', true, NOW - STALE - 1, NOW, STALE)).toBe('offline');
+  });
+
+  it('changes nothing when no meeting is running', () => {
+    // The regression guard for the added parameter: false must leave every
+    // pre-Phase-3 outcome exactly as it was.
+    expect(resolveDisplayStatus('active', 'on-shift', false, FRESH, NOW, STALE)).toBe('active');
+    expect(resolveDisplayStatus('active', 'on-break', false, FRESH, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus('active', 'off-shift', false, FRESH, NOW, STALE)).toBe('offline');
+    expect(resolveDisplayStatus(undefined, 'unknown', false, undefined, NOW, STALE)).toBe('away');
+  });
+});
+
+describe('meetingsForMember', () => {
+  const withAttendees = (id: string, attendeeIds: string[]) => ({
+    _id: id,
+    title: 'Standup',
+    startsAt: '2026-07-15T18:00:00Z',
+    endsAt: '2026-07-15T19:00:00Z',
+    attendeeIds,
+    createdBy: attendeeIds[0],
+  });
+
+  it('picks out only the meetings a member attends', () => {
+    const all = [
+      withAttendees('m1', ['a', 'b']),
+      withAttendees('m2', ['c']),
+      withAttendees('m3', ['b']),
+    ];
+    expect(meetingsForMember(all, 'b').map(m => m._id)).toEqual(['m1', 'm3']);
+    expect(meetingsForMember(all, 'z')).toEqual([]);
   });
 });

@@ -6,7 +6,12 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/useTeam';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
-import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
+import {
+  getCurrentShiftForMember,
+  getScheduleState,
+  meetingsForMember,
+  isMeetingInProgress,
+} from '../utils/scheduleTime';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import { API_BASE } from '../config';
 
@@ -23,7 +28,7 @@ const inputClass =
   'w-full bg-zinc-800 text-white border border-zinc-700 rounded px-3 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
 
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
-  const { setStatus, deleteMember, refreshAllData, recurringShifts, now } = useTeam();
+  const { setStatus, deleteMember, refreshAllData, recurringShifts, meetings, now } = useTeam();
 
   // Same derivation the sidebar does, so the two views can't disagree about
   // what a member's status is. Off shift shows offline regardless of what
@@ -33,9 +38,14 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   // whatever moment the card first rendered.
   const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone, now);
   const lastSeenAtMs = member.lastSeenAt ? new Date(member.lastSeenAt).getTime() : undefined;
+  // Same instant test the sidebar runs. No timezone needed - a meeting is
+  // stored as an instant, so "is it happening now" is a plain comparison.
+  const inMeeting = meetingsForMember(meetings, member._id)
+    .some(m => isMeetingInProgress(m, now));
   const displayStatus = resolveDisplayStatus(
     member.status,
     getScheduleState(resolution, member.timezone, now),
+    inMeeting,
     lastSeenAtMs,
     now.valueOf(),
     HEARTBEAT_STALE_MS
@@ -250,9 +260,13 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
                   as. resolveDisplayStatus also covers the missing-status case
                   (pre-migration records) by falling back to 'away'. */}
               <span>{STATUS_META[displayStatus].label}</span>
+              {/* Names the actual reason for the override rather than always
+                  saying "off shift" - three different things can derive a
+                  status now, and only one of them is the schedule. */}
               {displayStatus !== member.status && !!member.status && (
                 <span className="text-zinc-500">
-                  {' '}(off shift — set {STATUS_META[member.status].label})
+                  {' '}({displayStatus === 'meeting' ? 'in a meeting' : displayStatus === 'break' ? 'at lunch' : 'off shift'}
+                  {' '}— set {STATUS_META[member.status].label})
                 </span>
               )}
             </p>

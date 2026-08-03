@@ -1,9 +1,9 @@
 import type { Dayjs } from 'dayjs';
 
 // The presence states. Mirrors the backend type. 'active' is the old
-// "available". 'offline' and 'break' are both schedule-derived (see
+// "available". 'offline', 'break' and 'meeting' are all schedule-derived (see
 // resolveDisplayStatus) and never hand-settable; the rest are set by hand.
-export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline' | 'break';
+export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline' | 'break' | 'meeting';
 
 export interface TeamMember {
   _id: string;
@@ -46,6 +46,29 @@ export interface RecurringShift {
   isOff: boolean;
 }
 
+/**
+ * A single booked meeting. Mirrors the backend type - keep in sync.
+ *
+ * THE TIME NOTE, because this is where it bites on the frontend: `startsAt` /
+ * `endsAt` are ISO 8601 UTC INSTANTS (what `Date` serializes to over JSON),
+ * NOT the `HH:mm` wall-clock strings every other time field here uses. A
+ * standing 9am is a different instant per person; a meeting is one instant
+ * that reads as a different wall clock per person.
+ *
+ * Practically: these go through `resolveMeetingCarveOutInViewerTz`, never
+ * through `resolveHourRangeInViewerTz` or `resolveBreakCarveOutInViewerTz`.
+ * Those take wall-clock strings and anchor them to TODAY's date, which is
+ * right for a record that carries no date and wrong for one that does.
+ */
+export interface Meeting {
+  _id: string;
+  title: string;
+  startsAt: string;  // ISO 8601 UTC instant
+  endsAt: string;    // ISO 8601 UTC instant
+  attendeeIds: string[];
+  createdBy: string;
+}
+
 export interface TeamContextType {
   // Ticking clock from useRefreshTick - components computing schedule/
   // heartbeat state should read time from here, not call dayjs() themselves,
@@ -60,10 +83,25 @@ export interface TeamContextType {
   now: Dayjs;
   members: TeamMember[];
   recurringShifts: RecurringShift[];
+  // Meetings overlapping the VIEWER's local calendar day only - not every
+  // meeting that exists. The grid draws one day on one clock, so that's the
+  // window the provider holds; anything wanting a different range should fetch
+  // it rather than expecting this to be complete.
+  meetings: Meeting[];
   loading: boolean;
   // Sets a member's presence to an explicit state (not a toggle - four
   // states have no single "opposite"). Only active/away/dnd are settable.
   setStatus: (id: string, status: TeamMemberStatus) => Promise<void>;
+  // Both return the outcome instead of throwing: a refusal here is a real,
+  // explainable case (you must be an attendee to create; only the organizer or
+  // an admin can delete), and the UI needs the server's wording to say so.
+  createMeeting: (input: {
+    title: string;
+    startsAt: string;   // ISO instant
+    endsAt: string;     // ISO instant
+    attendeeIds: string[];
+  }) => Promise<{ success: boolean; message?: string }>;
+  deleteMeeting: (id: string) => Promise<{ success: boolean; message?: string }>;
   deleteMember: (id: string) => Promise<void>;
   refreshAllData: () => Promise<void>;
   handleMemberAdded: () => void;

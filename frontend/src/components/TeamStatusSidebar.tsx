@@ -1,7 +1,12 @@
 import { Link } from 'react-router-dom';
 import { useTeam } from '../context/useTeam';
 import { useAuth } from '../context/useAuth';
-import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
+import {
+  getCurrentShiftForMember,
+  getScheduleState,
+  meetingsForMember,
+  isMeetingInProgress,
+} from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import type { TeamMember } from '../types';
@@ -13,7 +18,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TeamStatusSidebar = () => {
-  const { members, recurringShifts, setStatus, viewerId, setViewer, viewerTimezone, now } = useTeam();
+  const { members, recurringShifts, meetings, setStatus, viewerId, setViewer, viewerTimezone, now } = useTeam();
   // Who is ACTUALLY logged in (real auth), as opposed to viewerId which only
   // simulates whose timezone the grid previews. Editing your own status keys
   // off this - it must match the identity the backend trusts from the JWT.
@@ -80,10 +85,21 @@ const TeamStatusSidebar = () => {
           // off shift (or having gone quiet - the heartbeat layer) derives
           // 'offline' over whatever they last set.
           const scheduleState = getScheduleState(resolution, member.timezone, now);
+
+          // Whether a booked meeting is running right now. Pure instant
+          // comparison - notably the only line in this component that needs no
+          // timezone at all, because both sides are instants rather than wall
+          // clocks. `meetings` only covers the viewer's local day, which is
+          // fine: a meeting in progress NOW is on the viewer's today by
+          // definition.
+          const currentMeeting = meetingsForMember(meetings, member._id)
+            .find(m => isMeetingInProgress(m, now));
+
           const lastSeenAtMs = member.lastSeenAt ? new Date(member.lastSeenAt).getTime() : undefined;
           const displayStatus = resolveDisplayStatus(
             member.status,
             scheduleState,
+            Boolean(currentMeeting),
             lastSeenAtMs,
             now.valueOf(),
             HEARTBEAT_STALE_MS
@@ -119,6 +135,18 @@ const TeamStatusSidebar = () => {
                   )}
                   {resolution.state === 'off' && (
                     <div className="text-xs text-zinc-500">Off today</div>
+                  )}
+                  {/* Naming the meeting turns "In a meeting" from a state into
+                      an answer - the next question after seeing that pill is
+                      always "which one, and how long." Shown regardless of
+                      whether the pill actually says 'meeting': someone off
+                      shift still reads as offline (see resolveDisplayStatus),
+                      and this line is what explains the violet block sitting
+                      on their grid row. */}
+                  {currentMeeting && (
+                    <div className="text-xs text-violet-300">
+                      In: {currentMeeting.title}
+                    </div>
                   )}
                   {/* Unset needs to be VISIBLE for everyone, not just you -
                       an empty row otherwise reads as "not working today,"
@@ -179,15 +207,19 @@ const TeamStatusSidebar = () => {
                       </button>
                     ))}
                   </div>
-                  {/* Without this, picking a status while off shift looks like
-                      the button did nothing - the pill above stays Offline.
-                      Explains that the choice IS saved and takes effect once
-                      they're back inside their hours. */}
+                  {/* Without this, picking a status while the schedule is
+                      overriding you looks like the button did nothing - the
+                      pill above doesn't change. The wording has to name the
+                      ACTUAL override, though: telling someone in a meeting
+                      that they're "outside your hours" would be a confidently
+                      wrong explanation of a correct display. */}
                   {isOverridden && (
                     <div className="mt-1.5 text-[11px] text-zinc-500 leading-snug">
-                      Outside your hours — showing offline. Your{' '}
-                      {STATUS_META[member.status].label} setting applies once
-                      you're back on shift.
+                      {displayStatus === 'meeting'
+                        ? `In a meeting — showing that instead. Your ${STATUS_META[member.status].label} setting applies once it ends.`
+                        : displayStatus === 'break'
+                        ? `At lunch — showing that instead. Your ${STATUS_META[member.status].label} setting applies once you're back.`
+                        : `Outside your hours — showing offline. Your ${STATUS_META[member.status].label} setting applies once you're back on shift.`}
                     </div>
                   )}
                 </>

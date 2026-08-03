@@ -1,7 +1,7 @@
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import type { RecurringShift, DayOfWeek } from '../types';
+import type { RecurringShift, DayOfWeek, Meeting } from '../types';
 
 // Registering these here too — dayjs plugins are global, but a util file
 // shouldn't assume some component already ran this setup before it's called.
@@ -338,6 +338,154 @@ export function carveOutFractionInHour(
   }
 
   return sliceInHour(carve.startHour, carve.endHour);
+}
+
+/* ------------------------------------------------------------------------ *
+ * MEETINGS - instants, not wall clocks. Read this header before editing.
+ *
+ * Everything above this line converts a WALL-CLOCK string (an HH:mm with no
+ * date) into the viewer's zone, and has to pin it to today's date by hand to
+ * get the DST offset right. A standing "9am" is a different instant for each
+ * person, which is why it's stored that way.
+ *
+ * A meeting is the mirror image: ONE instant that reads as a different wall
+ * clock for each person. So these functions start from an ISO instant and go
+ * the other direction, and the date-anchoring works out differently:
+ *
+ *   - resolveHourRangeInViewerTz MUST anchor to today, because its input
+ *     carries no date and would otherwise have no offset to use.
+ *   - resolveMeetingCarveOutInViewerTz MUST NOT, because its input carries its
+ *     own date, and dayjs applies that date's offset automatically on .tz().
+ *     Anchoring to today here would silently re-date the meeting and shift it
+ *     by an hour across a DST boundary.
+ *
+ * These are deliberately separate functions rather than one that handles both.
+ * A single "convert a time to the viewer's zone" helper taking either shape is
+ * exactly how the two get mixed, and mixing them is quiet: it looks right for
+ * everyone in the author's timezone and is wrong by their offset for everyone
+ * else.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * The instant bounds of the VIEWER's local calendar day, as ISO strings for
+ * GET /api/meetings.
+ *
+ * This is where the cross-day decision (nextSteps.md: the viewer's local day
+ * decides what's on the grid) turns into a query. The server never learns
+ * anyone's timezone - it just gets two instants and returns what overlaps
+ * them. A meeting that's tomorrow for the viewer is outside this window even
+ * if it's tonight in Tokyo, which is the intended reading: the grid draws one
+ * day on one clock, and says so in its header.
+ */
+export function viewerDayWindow(
+  viewerTimezone: string | undefined,
+  now: Dayjs = dayjs()
+): { from: string; to: string } | null {
+  if (!viewerTimezone) return null;
+
+  const local = now.tz(viewerTimezone);
+  const start = local.startOf('day');
+  // Adding a day before startOf handles the DST days that are 23 or 25 hours
+  // long - the next local midnight is not always exactly 24 hours away.
+  const end = local.add(1, 'day').startOf('day');
+
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+/**
+ * Converts a meeting's UTC instants into a CarveOut on the viewer's clock,
+ * CLAMPED to the viewer's local calendar day.
+ *
+ * The clamp is what makes the result unambiguous. The grid's columns are
+ * hour-of-day (6AM through 5AM the next morning, wrapped), so a meeting
+ * spilling across the viewer's midnight would otherwise paint cells belonging
+ * to a different day - a 23:30-00:30 meeting drawn unclamped would light the
+ * 23:00 column of TODAY even though that half of it happened yesterday.
+ * Clamping draws only the part that actually falls on the day being displayed.
+ *
+ * A useful consequence: a clamped carve-out never wraps, so `isOvernight` is
+ * always false here. The field stays on the shape because CarveOut is shared
+ * with breaks (which genuinely can wrap - a Tokyo lunch can land either side
+ * of midnight in LA) and carveOutFractionInHour reads it.
+ *
+ * Returns null when the meeting doesn't touch the viewer's day at all, so a
+ * stale fetch can't paint anything.
+ */
+export function resolveMeetingCarveOutInViewerTz(
+  meeting: Pick<Meeting, 'startsAt' | 'endsAt'>,
+  viewerTimezone: string | undefined,
+  now: Dayjs = dayjs()
+): CarveOut | null {
+  if (!viewerTimezone) return null;
+
+  const start = dayjs(meeting.startsAt);
+  const end = dayjs(meeting.endsAt);
+  // dayjs() on an unparseable string returns an INVALID instance rather than
+  // throwing (unlike dayjs.tz(), which is why the break path needs a regex
+  // guard first). Still worth checking: .hour() on an invalid instance is NaN,
+  // which would poison the fraction math silently.
+  if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return null;
+
+  let dayStart: Dayjs;
+  let dayEnd: Dayjs;
+  try {
+    const local = now.tz(viewerTimezone);
+    dayStart = local.startOf('day');
+    dayEnd = local.add(1, 'day').startOf('day');
+  } catch {
+    // dayjs throws on an unknown zone. A bad viewer timezone should degrade to
+    // "no meetings drawn", not take the grid down with it.
+    return null;
+  }
+
+  // Clamp to the viewer's day, as instants - comparing instants needs no
+  // timezone at all, which is the whole convenience of this representation.
+  const clampedStart = start.isBefore(dayStart) ? dayStart : start;
+  const clampedEnd = end.isAfter(dayEnd) ? dayEnd : end;
+  // Zero or negative width means the meeting misses this day entirely.
+  if (!clampedEnd.isAfter(clampedStart)) return null;
+
+  // NOW read those instants on the viewer's clock. No manual date anchoring:
+  // each instant already knows its own date, so .tz() picks the offset that
+  // was actually in force then - which is exactly what the wall-clock
+  // functions above have to fake, and what makes a meeting booked across a
+  // DST changeover land on the right hour.
+  const startLocal = clampedStart.tz(viewerTimezone);
+  const endLocal = clampedEnd.tz(viewerTimezone);
+
+  const startHour = startLocal.hour() + startLocal.minute() / 60;
+  // A meeting ending exactly at local midnight reads as hour 0, which would
+  // collapse the carve-out to nothing. It's the END of the day, so 24.
+  const endHour = endLocal.isSame(dayEnd)
+    ? 24
+    : endLocal.hour() + endLocal.minute() / 60;
+
+  return { startHour, endHour, isOvernight: false };
+}
+
+/**
+ * Is this meeting happening RIGHT NOW?
+ *
+ * Pure instant comparison, and notably the only presence question in this
+ * codebase that needs no timezone whatsoever - both sides are instants, so
+ * there's no clock to place anyone on. Compare with getScheduleState, which
+ * can't answer anything without the member's zone because its input is a wall
+ * clock. Half-open [start, end) to match every other range test here.
+ */
+export function isMeetingInProgress(
+  meeting: Pick<Meeting, 'startsAt' | 'endsAt'>,
+  now: Dayjs = dayjs()
+): boolean {
+  const start = dayjs(meeting.startsAt);
+  const end = dayjs(meeting.endsAt);
+  if (!start.isValid() || !end.isValid()) return false;
+  const ms = now.valueOf();
+  return ms >= start.valueOf() && ms < end.valueOf();
+}
+
+/** The meetings a given member is attending, from a fetched list. */
+export function meetingsForMember(meetings: Meeting[], memberId: string): Meeting[] {
+  return meetings.filter(m => m.attendeeIds.some(id => String(id) === String(memberId)));
 }
 
 /**
