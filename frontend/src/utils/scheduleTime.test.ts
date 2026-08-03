@@ -5,6 +5,8 @@ import timezone from 'dayjs/plugin/timezone';
 import type { RecurringShift } from '../types';
 import {
   resolveHourRangeInViewerTz,
+  resolveBreakCarveOutInViewerTz,
+  carveOutFractionInHour,
   getCurrentShiftForMember,
   getScheduleState,
   isHourInRange,
@@ -64,8 +66,20 @@ function makeRecurring(overrides: Partial<RecurringShift> = {}): RecurringShift 
 }
 
 // Shorthand for building a "working" resolution to feed resolveHourRangeInViewerTz.
-function working(startTime = '09:00', endTime = '17:00'): ShiftResolution {
-  return { state: 'working', startTime, endTime };
+// The optional break pair is left off unless a test needs one, so existing
+// cases keep asserting the exact behavior they did before Phase 2.
+function working(
+  startTime = '09:00',
+  endTime = '17:00',
+  breakStart?: string,
+  breakEnd?: string
+): ShiftResolution {
+  return {
+    state: 'working',
+    startTime,
+    endTime,
+    ...(breakStart && breakEnd ? { breakStart, breakEnd } : {}),
+  };
 }
 
 describe('getCurrentShiftForMember', () => {
@@ -387,5 +401,216 @@ describe('resolveDisplayStatus', () => {
       expect(resolveDisplayStatus('active', 'on-shift', undefined, NOW, STALE)).toBe('active');
       expect(resolveDisplayStatus(undefined, 'unknown', undefined, NOW, STALE)).toBe('away');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 - standing lunch break.
+//
+// Three separate things get tested below, and it's worth knowing which is
+// which before reading them:
+//   1. getScheduleState gains 'on-break' - a REFINEMENT of on-shift, so it can
+//      only happen inside the hours.
+//   2. resolveBreakCarveOutInViewerTz converts the break to the viewer's clock
+//      as FRACTIONAL hours (12.5 = 12:30), where HourRange throws minutes away.
+//   3. carveOutFractionInHour turns that into "paint this cell 0% to 50%".
+// The single most important assertion in here is that a shift with NO break
+// behaves exactly as it did before Phase 2 - that's the regression net.
+// ---------------------------------------------------------------------------
+describe('getScheduleState - break layer (Phase 2)', () => {
+  it('is on-break inside the lunch window', () => {
+    // Noon in NY, working 09:00-17:00 with lunch 12:00-12:30 -> at lunch.
+    expect(getScheduleState(working('09:00', '17:00', '12:00', '12:30'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-break');
+  });
+
+  it('is plain on-shift just before and just after the break', () => {
+    // Pinned now is 12:00, so a lunch starting at 12:15 has not begun yet...
+    expect(getScheduleState(working('09:00', '17:00', '12:15', '12:45'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+    // ...and one ending at 12:00 is already over. Half-open [start, end):
+    // the minute the break ends they read as working again.
+    expect(getScheduleState(working('09:00', '17:00', '11:30', '12:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+  });
+
+  it('treats the break start as inclusive and the end as exclusive', () => {
+    // Break starting exactly at the pinned 12:00 counts as on-break.
+    expect(getScheduleState(working('09:00', '17:00', '12:00', '13:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-break');
+  });
+
+  it('never reports on-break when the member is off shift', () => {
+    // Break window contains the pinned noon, but the SHIFT does not. Off-shift
+    // has to win - this is the ordering that keeps a stale or malformed break
+    // from promoting someone to "at lunch" on a day they aren't working.
+    expect(getScheduleState(working('13:00', '17:00', '12:00', '12:30'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+  });
+
+  it('judges the break on the MEMBER own clock, not the viewer', () => {
+    // Instant is Friday 23:00 UTC. In Tokyo that's Saturday 08:00, so a
+    // Tokyo member with a Saturday 08:00 lunch is at lunch right now even
+    // though the viewer is still on Friday evening.
+    expect(getScheduleState(working('08:00', '16:00', '08:00', '08:30'), 'Asia/Tokyo', FRI_2300_UTC))
+      .toBe('on-break');
+  });
+
+  it('falls back to on-shift on a malformed or inverted break', () => {
+    // Unparseable times, and a backwards window. Neither should throw, and
+    // neither should claim on-break - we know they're working, we just can't
+    // place the lunch. (An inverted break can't come from the API, but old
+    // documents predate the rule.)
+    expect(getScheduleState(working('09:00', '17:00', 'lunch', 'later'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+    expect(getScheduleState(working('09:00', '17:00', '13:00', '11:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+  });
+
+  it('REGRESSION: a shift with no break behaves exactly as before Phase 2', () => {
+    expect(getScheduleState(working('09:00', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+    expect(getScheduleState(working('13:00', '17:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('off-shift');
+    expect(getScheduleState({ state: 'off' }, 'America/New_York', MON_NOON_NY)).toBe('off-shift');
+    expect(getScheduleState({ state: 'unset' }, 'America/New_York', MON_NOON_NY)).toBe('unknown');
+  });
+});
+
+describe('getCurrentShiftForMember - break passthrough (Phase 2)', () => {
+  it('carries a complete break pair onto the resolution', () => {
+    const shifts = [makeRecurring({ breakStart: '12:00', breakEnd: '12:30' })];
+    expect(getCurrentShiftForMember('m1', shifts, 'America/New_York', MON_NOON_NY))
+      .toEqual({ state: 'working', startTime: '09:00', endTime: '17:00', breakStart: '12:00', breakEnd: '12:30' });
+  });
+
+  it('drops a half-set break rather than passing a one-ended window along', () => {
+    // The API rejects these, but documents written before Phase 2 can hold
+    // one. Degrading to "no lunch" is the honest reading of an incomplete
+    // record, and it keeps a NaN out of the carve-out math downstream.
+    const onlyStart = [makeRecurring({ breakStart: '12:00' })];
+    expect(getCurrentShiftForMember('m1', onlyStart, 'America/New_York', MON_NOON_NY))
+      .toEqual({ state: 'working', startTime: '09:00', endTime: '17:00' });
+
+    const onlyEnd = [makeRecurring({ breakEnd: '12:30' })];
+    expect(getCurrentShiftForMember('m1', onlyEnd, 'America/New_York', MON_NOON_NY))
+      .toEqual({ state: 'working', startTime: '09:00', endTime: '17:00' });
+  });
+});
+
+describe('resolveBreakCarveOutInViewerTz', () => {
+  it('returns null when there is no break, or nothing working to hang it on', () => {
+    expect(resolveBreakCarveOutInViewerTz(working(), 'America/New_York', 'America/New_York', MON_NOON_NY))
+      .toBeNull();
+    expect(resolveBreakCarveOutInViewerTz({ state: 'off' }, 'America/New_York', 'America/New_York', MON_NOON_NY))
+      .toBeNull();
+    expect(resolveBreakCarveOutInViewerTz({ state: 'unset' }, 'America/New_York', 'America/New_York', MON_NOON_NY))
+      .toBeNull();
+    expect(resolveBreakCarveOutInViewerTz(null, 'America/New_York', 'America/New_York', MON_NOON_NY))
+      .toBeNull();
+  });
+
+  it('keeps minutes as a fraction in the same timezone', () => {
+    // 12:00-12:30 stays 12.0-12.5. This is the whole reason CarveOut exists:
+    // HourRange would bucket both ends to 12 and lose the half hour.
+    expect(resolveBreakCarveOutInViewerTz(
+      working('09:00', '17:00', '12:00', '12:30'),
+      'America/New_York', 'America/New_York', MON_NOON_NY
+    )).toEqual({ startHour: 12, endHour: 12.5, isOvernight: false });
+  });
+
+  it('handles quarter-hour boundaries', () => {
+    expect(resolveBreakCarveOutInViewerTz(
+      working('09:00', '17:00', '12:15', '12:45'),
+      'America/New_York', 'America/New_York', MON_NOON_NY
+    )).toEqual({ startHour: 12.25, endHour: 12.75, isOvernight: false });
+  });
+
+  it('converts across timezones, preserving the minutes', () => {
+    // NY 12:00-12:30 is 09:00-09:30 in LA (3 hours behind).
+    expect(resolveBreakCarveOutInViewerTz(
+      working('09:00', '17:00', '12:00', '12:30'),
+      'America/New_York', 'America/Los_Angeles', MON_NOON_NY
+    )).toEqual({ startHour: 9, endHour: 9.5, isOvernight: false });
+  });
+
+  it('flags an overnight carve-out when the conversion straddles midnight', () => {
+    // Tokyo 09:00-09:30 lunch, viewed from LA, lands either side of midnight
+    // the previous day - a short break CAN wrap even though the shift
+    // containing it cannot.
+    const carve = resolveBreakCarveOutInViewerTz(
+      working('08:00', '17:00', '15:45', '16:15'),
+      'Asia/Tokyo', 'America/Los_Angeles', MON_NOON_TOKYO
+    );
+    expect(carve).toEqual({ startHour: 23.75, endHour: 0.25, isOvernight: true });
+  });
+
+  it('returns null on malformed break times rather than an NaN window', () => {
+    expect(resolveBreakCarveOutInViewerTz(
+      working('09:00', '17:00', 'noon', 'half past'),
+      'America/New_York', 'America/New_York', MON_NOON_NY
+    )).toBeNull();
+  });
+});
+
+describe('carveOutFractionInHour', () => {
+  const noon = { startHour: 12, endHour: 12.5, isOvernight: false };
+
+  it('returns null for a null carve-out or an untouched hour', () => {
+    expect(carveOutFractionInHour(null, 12)).toBeNull();
+    expect(carveOutFractionInHour(noon, 11)).toBeNull();
+    expect(carveOutFractionInHour(noon, 13)).toBeNull();
+  });
+
+  it('expresses a half-hour lunch as the first half of its cell', () => {
+    expect(carveOutFractionInHour(noon, 12)).toEqual({ start: 0, end: 0.5 });
+  });
+
+  it('handles a carve-out starting mid-cell', () => {
+    expect(carveOutFractionInHour({ startHour: 12.25, endHour: 12.75, isOvernight: false }, 12))
+      .toEqual({ start: 0.25, end: 0.75 });
+  });
+
+  it('clamps a multi-hour carve-out to each cell it crosses', () => {
+    // 12:30-14:00 covers half of the 12 cell, all of 13, none of 14.
+    const long = { startHour: 12.5, endHour: 14, isOvernight: false };
+    expect(carveOutFractionInHour(long, 12)).toEqual({ start: 0.5, end: 1 });
+    expect(carveOutFractionInHour(long, 13)).toEqual({ start: 0, end: 1 });
+    expect(carveOutFractionInHour(long, 14)).toBeNull();
+  });
+
+  it('splits an overnight carve-out across the two cells it touches', () => {
+    // 23:45-00:15 - the tail of hour 23 and the head of hour 0.
+    const wrap = { startHour: 23.75, endHour: 0.25, isOvernight: true };
+    expect(carveOutFractionInHour(wrap, 23)).toEqual({ start: 0.75, end: 1 });
+    expect(carveOutFractionInHour(wrap, 0)).toEqual({ start: 0, end: 0.25 });
+    expect(carveOutFractionInHour(wrap, 12)).toBeNull();
+  });
+});
+
+describe('resolveDisplayStatus - break layer (Phase 2)', () => {
+  const NOW = dayjs('2026-07-20T12:00:00Z').valueOf();
+  const STALE = 45_000;
+
+  it('shows break when on-break, overriding whatever they set', () => {
+    // Same reasoning as off-shift overriding a stored status, just narrower:
+    // someone who clicked Active this morning and is now in their standing
+    // lunch is not available, and the stored value is the stalest thing here.
+    expect(resolveDisplayStatus('active', 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus('dnd', 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
+    expect(resolveDisplayStatus(undefined, 'on-break', NOW - 1000, NOW, STALE)).toBe('break');
+  });
+
+  it('a stale heartbeat still wins over the break', () => {
+    // A lunch window is a PLAN; the heartbeat is EVIDENCE. If the laptop has
+    // been shut for an hour, "at lunch" would dress up an absence as a
+    // scheduled one - offline is the more honest reading.
+    expect(resolveDisplayStatus('active', 'on-break', NOW - 60_000, NOW, STALE)).toBe('offline');
+  });
+
+  it('never-logged-in members still reach the break layer', () => {
+    // undefined lastSeenAt is an absence of information, not staleness, so it
+    // falls through the heartbeat layer to the schedule - same rule as Phase 1.
+    expect(resolveDisplayStatus('active', 'on-break', undefined, NOW, STALE)).toBe('break');
   });
 });

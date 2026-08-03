@@ -1,7 +1,7 @@
-// The four presence states. Mirrors the backend type. 'active' is the old
-// "available"; 'offline' is schedule-derived (see nextSteps.md), the rest
-// are set by hand.
-export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline';
+// The presence states. Mirrors the backend type. 'active' is the old
+// "available". 'offline' and 'break' are both schedule-derived (see
+// resolveDisplayStatus) and never hand-settable; the rest are set by hand.
+export type TeamMemberStatus = 'active' | 'away' | 'dnd' | 'offline' | 'break';
 
 export interface TeamMember {
   _id: string;
@@ -25,18 +25,6 @@ export interface UserBadge {
   // no password field here — it should never be sent to or stored in the frontend
 }
 
-// One-off, dated events (breaks). Standing weekly hours live in
-// RecurringShift. Mirrors the backend type - keep in sync.
-export interface WorkShift {
-  _id?: string;
-  teamMemberId: string | TeamMember;   // Can be populated or just the ID
-  date: string;                        // YYYY-MM-DD
-  startTime: string;                   // HH:mm
-  endTime: string;                     // HH:mm
-  isBreak?: boolean;
-  notes?: string;
-}
-
 // 0 = Sunday .. 6 = Saturday (JS getDay() convention).
 export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -48,6 +36,11 @@ export interface RecurringShift {
   dayOfWeek: DayOfWeek;
   startTime?: string;                  // HH:mm, member's own local time
   endTime?: string;                    // HH:mm
+  // Standing daily break (lunch), member's own local time. Both or neither,
+  // and must fall inside startTime/endTime - enforced by PUT /:id/hours.
+  // May land on a quarter hour, unlike shift times.
+  breakStart?: string;                 // HH:mm
+  breakEnd?: string;                   // HH:mm
   isOff: boolean;
 }
 

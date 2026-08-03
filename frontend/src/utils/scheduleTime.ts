@@ -19,14 +19,44 @@ export interface HourRange {
  *   - working: hours set for today's weekday, on shift
  *   - off:     a record for today's weekday, explicitly marked off
  *   - unset:   no record for today's weekday (hours never set up)
- * Keeping off and unset distinct (the old WorkShift|undefined couldn't) is what
+ * Keeping off and unset distinct (the old shift-record|undefined couldn't) is what
  * lets the UI show "off today" vs. a "set your hours" prompt, and feeds the
  * derived-offline status layer (see nextSteps.md).
  */
 export type ShiftResolution =
-  | { state: 'working'; startTime: string; endTime: string }
+  | {
+      state: 'working';
+      startTime: string;
+      endTime: string;
+      // Standing daily break (lunch), member's own local HH:mm. Both or
+      // neither - the save route enforces that, and getCurrentShiftForMember
+      // drops a half-set pair rather than passing a nonsense window through.
+      breakStart?: string;
+      breakEnd?: string;
+    }
   | { state: 'off' }
   | { state: 'unset' };
+
+/**
+ * A slice of time carved out of an otherwise-available block, expressed in
+ * FRACTIONAL hours on the viewer's clock (12.5 = 12:30). The grid draws these
+ * inside its hour cells.
+ *
+ * Deliberately says nothing about what the carve-out IS. A standing lunch is
+ * the only producer today, but Phase 3's meetings are the same shape - a
+ * window drawn inside a shift block - and they arrive as UTC instants rather
+ * than wall-clock strings. Keeping this type free of "lunch" means meetings
+ * plug into the same renderer instead of needing a parallel one.
+ *
+ * `isOvernight` mirrors HourRange: true when the window wraps past midnight on
+ * the viewer's clock, which a short break can do even though the shift
+ * containing it can't (a Tokyo lunch can land either side of midnight in LA).
+ */
+export interface CarveOut {
+  startHour: number;    // fractional, viewer's timezone
+  endHour: number;      // fractional, viewer's timezone
+  isOvernight: boolean;
+}
 
 // Pull a member id out of a RecurringShift whether teamMemberId came back as a
 // raw id string or a populated { _id } object. GET /api/recurring-shifts sends
@@ -70,7 +100,20 @@ export function getCurrentShiftForMember(
   // Nothing to render, so fall back to unset rather than crash on undefined.
   if (!record.startTime || !record.endTime) return { state: 'unset' };
 
-  return { state: 'working', startTime: record.startTime, endTime: record.endTime };
+  // A half-set break is dropped rather than passed along. The API rejects
+  // both-or-neither, but old documents predate that rule, and a window with
+  // one end missing would otherwise become a NaN comparison downstream -
+  // silently false, so it'd read as "not on break" in some places and throw
+  // off the carve-out math in others. Dropping it degrades to "no lunch",
+  // which is the honest reading of an incomplete record.
+  const hasBreak = Boolean(record.breakStart && record.breakEnd);
+
+  return {
+    state: 'working',
+    startTime: record.startTime,
+    endTime: record.endTime,
+    ...(hasBreak ? { breakStart: record.breakStart, breakEnd: record.breakEnd } : {}),
+  };
 }
 
 /**
@@ -79,12 +122,18 @@ export function getCurrentShiftForMember(
  *   - off-shift: a positive "they are not working now" - either today is an
  *                explicit off day, or it's a working day and the clock is
  *                outside the hours
+ *   - on-break:  on shift, but inside their standing lunch window
  *   - unknown:   no record for today (hours never set up) - we can't claim
  *                either way, which is NOT the same as "not working"
  * The unknown/off-shift split is the whole point: only off-shift is a fact
  * strong enough to override what a member says about themselves.
+ *
+ * on-break is a REFINEMENT of on-shift, not a peer of off-shift: it can only
+ * happen inside the hours, so it's checked after the shift test passes rather
+ * than alongside it. That ordering is what keeps a malformed break from ever
+ * promoting someone to "at lunch" on a day they aren't working.
  */
-export type ScheduleState = 'on-shift' | 'off-shift' | 'unknown';
+export type ScheduleState = 'on-shift' | 'off-shift' | 'on-break' | 'unknown';
 
 // "HH:mm" -> minutes since midnight. Returns null on anything malformed so
 // callers can fall back rather than compare against NaN (which is silently
@@ -132,7 +181,22 @@ export function getScheduleState(
       ? current >= start || current < end
       : current >= start && current < end;
 
-  return inside ? 'on-shift' : 'off-shift';
+  if (!inside) return 'off-shift';
+
+  // On shift - now check whether they're inside the standing lunch. Same
+  // half-open [start, end) treatment, so the minute the break ends they read
+  // as working again. A malformed break falls through to plain 'on-shift'
+  // rather than erroring: we know they're working, we just can't place the
+  // lunch, and claiming on-break from unparseable data would be worse.
+  if (resolution.breakStart && resolution.breakEnd) {
+    const breakStart = toMinutes(resolution.breakStart);
+    const breakEnd = toMinutes(resolution.breakEnd);
+    if (breakStart !== null && breakEnd !== null && breakStart < breakEnd) {
+      if (current >= breakStart && current < breakEnd) return 'on-break';
+    }
+  }
+
+  return 'on-shift';
 }
 
 /**
@@ -175,6 +239,94 @@ export function resolveHourRangeInViewerTz(
   const isOvernight = endHour < startHour;
 
   return { startHour, endHour, isOvernight };
+}
+
+/**
+ * Converts a working shift's standing break into a CarveOut on the viewer's
+ * clock. Returns null when there's no break to draw.
+ *
+ * Same DST-anchoring as resolveHourRangeInViewerTz, and for the same reason -
+ * recurring records carry no date, but the offset between two zones depends
+ * on the calendar day. Kept as a separate function rather than folded into
+ * HourRange because a shift block and a carve-out are drawn differently and
+ * a member can have one without the other.
+ *
+ * Minutes survive the conversion here (as a fraction) where HourRange throws
+ * them away. That's the whole point of the fractional representation: a
+ * 12:00-12:30 lunch bucketed to whole hours would paint the entire 12:00 cell
+ * and claim someone is away for twice as long as they are.
+ */
+export function resolveBreakCarveOutInViewerTz(
+  resolution: ShiftResolution | null | undefined,
+  memberTimezone: string | undefined,
+  viewerTimezone: string | undefined,
+  now: Dayjs = dayjs()
+): CarveOut | null {
+  if (!resolution || resolution.state !== 'working') return null;
+  if (!resolution.breakStart || !resolution.breakEnd) return null;
+  if (!memberTimezone || !viewerTimezone) return null;
+
+  // Shape-check BEFORE handing anything to dayjs.tz. An unparseable string
+  // makes it THROW ("Invalid time value") rather than returning an invalid
+  // instance, so an isValid() check afterwards never runs - the exception is
+  // already on its way up through the render. Cheap guard, and it keeps a bad
+  // record in the database from taking the whole grid down with it.
+  if (!/^\d{2}:\d{2}$/.test(resolution.breakStart) || !/^\d{2}:\d{2}$/.test(resolution.breakEnd)) {
+    return null;
+  }
+
+  const anchorDate = now.tz(memberTimezone).format('YYYY-MM-DD');
+
+  const startInMemberTz = dayjs.tz(`${anchorDate} ${resolution.breakStart}`, memberTimezone);
+  const endInMemberTz = dayjs.tz(`${anchorDate} ${resolution.breakEnd}`, memberTimezone);
+
+  // Belt and braces: a well-shaped but impossible time (25:99) parses without
+  // throwing but lands as invalid, and .hour() on that is NaN - which would
+  // poison every downstream comparison silently rather than loudly.
+  if (!startInMemberTz.isValid() || !endInMemberTz.isValid()) return null;
+
+  const startInViewerTz = startInMemberTz.tz(viewerTimezone);
+  const endInViewerTz = endInMemberTz.tz(viewerTimezone);
+
+  const startHour = startInViewerTz.hour() + startInViewerTz.minute() / 60;
+  const endHour = endInViewerTz.hour() + endInViewerTz.minute() / 60;
+
+  return { startHour, endHour, isOvernight: endHour < startHour };
+}
+
+/**
+ * How much of a single hour cell a carve-out covers, as a [start, end] pair of
+ * fractions from 0 to 1 (0.0-0.5 = the left half of the cell). Returns null
+ * when the carve-out doesn't touch this hour at all.
+ *
+ * This is the one piece of math the grid needs: it turns "lunch is 12.0-12.5
+ * on your clock" into "paint this cell from 0% to 50%", with no knowledge of
+ * pixels, CSS, or what the carve-out represents.
+ */
+export function carveOutFractionInHour(
+  carve: CarveOut | null,
+  hour: number
+): { start: number; end: number } | null {
+  if (!carve) return null;
+
+  // Clamp one continuous [segStart, segEnd) window to a single hour cell and
+  // express the overlap as a fraction of that cell. Zero width means the
+  // window doesn't reach this hour at all.
+  const sliceInHour = (segStart: number, segEnd: number) => {
+    const start = Math.min(Math.max(segStart - hour, 0), 1);
+    const end = Math.min(Math.max(segEnd - hour, 0), 1);
+    return end > start ? { start, end } : null;
+  };
+
+  // An overnight window is genuinely TWO segments, not one with a wrapped
+  // end: [start, midnight) and [midnight, end). Clamping it as a single
+  // range silently fails, because endHour is numerically BEFORE startHour -
+  // the subtraction goes negative and the slice collapses to nothing.
+  if (carve.isOvernight) {
+    return sliceInHour(carve.startHour, 24) ?? sliceInHour(0, carve.endHour);
+  }
+
+  return sliceInHour(carve.startHour, carve.endHour);
 }
 
 /**

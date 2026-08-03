@@ -27,12 +27,28 @@ interface DayEntry {
   isOff: boolean;
   startTime: string;
   endTime: string;
+  // Whether this day has a standing lunch. Kept as its own flag rather than
+  // inferring it from empty time strings: the two break inputs always hold a
+  // value (same prefill reasoning as the shift times below), so "" can't be
+  // the signal for "no break" the way it could with blank inputs.
+  hasBreak: boolean;
+  breakStart: string;
+  breakEnd: string;
 }
 
 // Default for a weekday with no existing record yet. Prefilling a sane 9-5
 // (rather than leaving times blank) means hitting Save on an untouched row
-// produces a valid working day instead of a validation error.
-const defaultDay = (): DayEntry => ({ isOff: false, startTime: '09:00', endTime: '17:00' });
+// produces a valid working day instead of a validation error. Same idea for
+// the break: a prefilled 12:00-12:30 means ticking the box is enough, with no
+// second step before the row is valid.
+const defaultDay = (): DayEntry => ({
+  isOff: false,
+  startTime: '09:00',
+  endTime: '17:00',
+  hasBreak: false,
+  breakStart: '12:00',
+  breakEnd: '12:30',
+});
 
 const emptyWeek = (): Record<DayOfWeek, DayEntry> => ({
   0: defaultDay(), 1: defaultDay(), 2: defaultDay(), 3: defaultDay(),
@@ -81,10 +97,17 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         setWeek(prev => {
           const next = { ...prev };
           for (const record of hours) {
+            // Both break fields present = a real break. A half-set pair is
+            // treated as no break rather than half-loaded, matching how
+            // getCurrentShiftForMember drops incomplete windows.
+            const hasBreak = Boolean(record.breakStart && record.breakEnd);
             next[record.dayOfWeek] = {
               isOff: record.isOff,
               startTime: record.startTime ?? '09:00',
               endTime: record.endTime ?? '17:00',
+              hasBreak,
+              breakStart: record.breakStart ?? '12:00',
+              breakEnd: record.breakEnd ?? '12:30',
             };
           }
           return next;
@@ -128,18 +151,49 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         setError(`${DAY_LABELS[day]}: shift must be at least 1 hour long`);
         return;
       }
+
+      if (!entry.hasBreak) continue;
+
+      // Breaks are allowed on a QUARTER hour, unlike shift times. The grid
+      // draws a break as a fractional carve-out inside its hour cell, so it
+      // can be finer-grained than the cell without misrendering - which a
+      // shift boundary can't, since that's where a whole cell lights up.
+      const breakStart = dayjs(`2026-01-01T${entry.breakStart}`);
+      const breakEnd = dayjs(`2026-01-01T${entry.breakEnd}`);
+
+      if (!breakStart.isBefore(breakEnd)) {
+        setError(`${DAY_LABELS[day]}: break start must be before break end`);
+        return;
+      }
+      if (breakStart.minute() % 15 !== 0 || breakEnd.minute() % 15 !== 0) {
+        setError(`${DAY_LABELS[day]}: break times must land on a quarter hour (e.g. 12:00, 12:15)`);
+        return;
+      }
+      if (breakStart.isBefore(start) || breakEnd.isAfter(end)) {
+        setError(`${DAY_LABELS[day]}: break must fall inside the shift hours`);
+        return;
+      }
     }
 
     setSaving(true);
     try {
       // Whole-week replace, matching the PUT route's contract - off days
       // send no times at all so the backend's $unset clears any leftovers.
+      // Off days send no times at all so the backend's $unset clears any
+      // leftovers - and a day with the break unticked sends no break fields,
+      // which is what makes the route $unset a lunch someone just removed.
       const payload = {
-        week: DAYS.map(day => ({
-          dayOfWeek: day,
-          isOff: week[day].isOff,
-          ...(week[day].isOff ? {} : { startTime: week[day].startTime, endTime: week[day].endTime }),
-        })),
+        week: DAYS.map(day => {
+          const entry = week[day];
+          if (entry.isOff) return { dayOfWeek: day, isOff: true };
+          return {
+            dayOfWeek: day,
+            isOff: false,
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            ...(entry.hasBreak ? { breakStart: entry.breakStart, breakEnd: entry.breakEnd } : {}),
+          };
+        }),
       };
 
       const res = await fetch(`${API_BASE}/api/team-members/${targetId}/hours`, {
@@ -197,34 +251,73 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
           return (
             <div
               key={day}
-              className="flex items-center gap-4 bg-zinc-800 border border-zinc-700/60 rounded-lg p-3"
+              className="bg-zinc-800 border border-zinc-700/60 rounded-lg p-3"
             >
-              <div className="w-28 text-white font-medium text-sm">{DAY_LABELS[day]}</div>
+              <div className="flex items-center gap-4">
+                <div className="w-28 text-white font-medium text-sm">{DAY_LABELS[day]}</div>
 
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
+                <label className="flex items-center gap-2 text-sm text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={entry.isOff}
+                    onChange={e => updateDay(day, { isOff: e.target.checked })}
+                  />
+                  Off
+                </label>
+
                 <input
-                  type="checkbox"
-                  checked={entry.isOff}
-                  onChange={e => updateDay(day, { isOff: e.target.checked })}
+                  type="time"
+                  className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                  value={entry.startTime}
+                  disabled={entry.isOff}
+                  onChange={e => updateDay(day, { startTime: e.target.value })}
                 />
-                Off
-              </label>
+                <span className="text-zinc-500">-</span>
+                <input
+                  type="time"
+                  className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                  value={entry.endTime}
+                  disabled={entry.isOff}
+                  onChange={e => updateDay(day, { endTime: e.target.value })}
+                />
+              </div>
 
-              <input
-                type="time"
-                className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
-                value={entry.startTime}
-                disabled={entry.isOff}
-                onChange={e => updateDay(day, { startTime: e.target.value })}
-              />
-              <span className="text-zinc-500">-</span>
-              <input
-                type="time"
-                className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
-                value={entry.endTime}
-                disabled={entry.isOff}
-                onChange={e => updateDay(day, { endTime: e.target.value })}
-              />
+              {/* Break row. Hidden entirely on off days rather than just
+                  disabled - a lunch on a day someone isn't working is
+                  incoherent, and the API rejects it, so offering the control
+                  would be offering a dead end. */}
+              {!entry.isOff && (
+                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-zinc-700/40">
+                  <div className="w-28" />
+
+                  <label className="flex items-center gap-2 text-sm text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={entry.hasBreak}
+                      onChange={e => updateDay(day, { hasBreak: e.target.checked })}
+                    />
+                    Lunch
+                  </label>
+
+                  <input
+                    type="time"
+                    step={900}
+                    className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                    value={entry.breakStart}
+                    disabled={!entry.hasBreak}
+                    onChange={e => updateDay(day, { breakStart: e.target.value })}
+                  />
+                  <span className="text-zinc-500">-</span>
+                  <input
+                    type="time"
+                    step={900}
+                    className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                    value={entry.breakEnd}
+                    disabled={!entry.hasBreak}
+                    onChange={e => updateDay(day, { breakEnd: e.target.value })}
+                  />
+                </div>
+              )}
             </div>
           );
         })}

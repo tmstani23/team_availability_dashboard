@@ -1,6 +1,14 @@
 import { useEffect } from 'react';
 import { useTeam } from '../context/TeamContext';
-import { resolveHourRangeInViewerTz, getCurrentShiftForMember, isHourInRange, formatHourLabel } from '../utils/scheduleTime';
+import {
+  resolveHourRangeInViewerTz,
+  resolveBreakCarveOutInViewerTz,
+  carveOutFractionInHour,
+  getCurrentShiftForMember,
+  isHourInRange,
+  formatHourLabel,
+} from '../utils/scheduleTime';
+import ScheduleCell from './ScheduleCell';
 
 interface ScheduleGridProps {
   selectedIds: string[];
@@ -44,11 +52,14 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
             // those rows render empty.
             const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
             const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
+            // The standing lunch, converted to the viewer's clock the same way
+            // the shift block is. Null when the member has no break set.
+            const carveOut = resolveBreakCarveOutInViewerTz(resolution, member.timezone, viewerTimezone);
             // resolution is carried through (not just hourRange) because off
             // and unset BOTH produce a null range and therefore an identical
             // empty row - only resolution.state can tell them apart, and the
             // name column labels the difference below.
-            return { member, hourRange, resolution };
+            return { member, hourRange, resolution, carveOut };
           });
 
           // Only checked members (from TeamHoursPanel) count toward overlap.
@@ -74,7 +85,7 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
               </div>
 
               {/* Team Member Rows - centered with padding */}
-              {memberRows.map(({ member, hourRange, resolution }) => (
+              {memberRows.map(({ member, hourRange, resolution, carveOut }) => (
                 <div
                   key={member._id}
                   className="grid mx-auto pl-8"
@@ -106,15 +117,14 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                     const isEndOfShift = hourRange && hour === (hourRange.endHour - 1 + 24) % 24;
 
                     return (
-                      <div
+                      // Each label fits inside its own cell (no more bleeding
+                      // across cells) - that approach looked fine on
+                      // same-colored cells but the border of every cell still
+                      // drew on top, visibly slicing through the text.
+                      <ScheduleCell
                         key={hour}
-                        // Each label now fits inside its own cell (no more
-                        // bleeding across cells) - that approach looked fine
-                        // on same-colored cells but the border of every cell
-                        // still drew on top, visibly slicing through the text.
-                        className={`border border-zinc-700 h-10 flex items-center justify-center text-[10px] rounded transition-colors
-                          ${isHourActive ? 'bg-emerald-600 text-white font-medium' : 'bg-zinc-800 text-zinc-500'}
-                        `}
+                        isActive={isHourActive}
+                        carve={carveOutFractionInHour(carveOut, hour)}
                       >
                         {/* formatHourLabel uses the viewer-converted hourRange,
                             not the shift's raw startTime/endTime - those are in
@@ -122,7 +132,7 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                             cell whenever member tz != viewer tz. */}
                         {isStartOfShift && hourRange && formatHourLabel(hourRange.startHour)}
                         {isEndOfShift && hourRange && !isStartOfShift && formatHourLabel(hourRange.endHour)}
-                      </div>
+                      </ScheduleCell>
                     );
                   })}
                 </div>
@@ -141,16 +151,22 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                   </div>
 
                   {hours.map(hour => {
-                    // Active only if EVERY selected member is active this hour
-                    const isOverlapActive = selectedRows.every(row => isHourInRange(row.hourRange, hour));
+                    // Active only if EVERY selected member is on shift this
+                    // hour AND none of them has a lunch touching it.
+                    //
+                    // The lunch test is deliberately STRICT - any carve-out at
+                    // all kills the whole hour, even a 15-minute one. This row
+                    // answers "can we all meet then," and a half-lit cell would
+                    // imply bookable time the row isn't actually asserting.
+                    // Losing 45 usable minutes is a cheaper error than
+                    // suggesting a slot that lands on someone's lunch, which is
+                    // the exact problem this feature exists to fix.
+                    const isOverlapActive =
+                      selectedRows.every(row => isHourInRange(row.hourRange, hour)) &&
+                      !selectedRows.some(row => carveOutFractionInHour(row.carveOut, hour));
 
                     return (
-                      <div
-                        key={hour}
-                        className={`border border-zinc-700 h-10 rounded transition-colors
-                          ${isOverlapActive ? 'bg-violet-600' : 'bg-zinc-800/50'}
-                        `}
-                      />
+                      <ScheduleCell key={hour} isActive={isOverlapActive} variant="overlap" />
                     );
                   })}
                 </div>

@@ -12,21 +12,41 @@ export const STATUS_META: Record<TeamMemberStatus, { label: string; short: strin
   away:    { label: 'Away',           short: 'Away',    pill: 'bg-yellow-500/15 text-yellow-400 border-yellow-500' },
   dnd:     { label: 'Do Not Disturb', short: 'DND',     pill: 'bg-red-500/15 text-red-400 border-red-500' },
   offline: { label: 'Offline',        short: 'Offline', pill: 'bg-zinc-500/15 text-zinc-400 border-zinc-500' },
+  // Derived from the standing lunch window, never stored. Amber rather than
+  // reusing away's yellow so "at lunch, back shortly" and "stepped out,
+  // who knows" don't read as the same state at a glance - the grid already
+  // draws the lunch explicitly, and a sidebar that said only "Away" would be
+  // telling a vaguer story about the same fact.
+  break:   { label: 'At lunch',       short: 'Lunch',   pill: 'bg-amber-500/15 text-amber-400 border-amber-500' },
 };
 
 // The states a user can pick by hand, in the order the picker shows them.
-// 'offline' is omitted on purpose - it's schedule-derived, not manually
-// settable, mirroring the backend's SETTABLE_STATUSES guard on /status.
+// 'offline' and 'break' are omitted on purpose - both are schedule-derived,
+// not manually settable, mirroring the backend's SETTABLE_STATUSES guard on
+// /status (which is an allowlist, so it rejects them without needing to know
+// they exist).
 export const SETTABLE_STATUSES: TeamMemberStatus[] = ['active', 'away', 'dnd'];
 
 /**
  * What a member ACTUALLY shows as, combining the schedule with what they set.
  * Precedence, highest first:
  *
- *   1. no recent heartbeat -> 'offline'  (derived; they are not here - NEW, Phase 1)
+ *   1. no recent heartbeat -> 'offline'  (derived; they are not here - Phase 1)
  *   2. off-shift            -> 'offline'  (derived; overrides whatever they set)
- *   3. whatever they set    -> as-is      (on-shift, or schedule unknown)
- *   4. never set anything   -> 'away'
+ *   3. in a standing break  -> 'break'    (derived - NEW, Phase 2)
+ *   4. whatever they set    -> as-is      (on-shift, or schedule unknown)
+ *   5. never set anything   -> 'away'
+ *
+ * Why the break sits BELOW the heartbeat at (3) rather than above it: a lunch
+ * window is a plan, and the heartbeat is evidence. If someone's laptop has
+ * been shut for an hour, "at lunch" would dress up an absence as a scheduled
+ * one - offline is the more honest reading. The schedule only gets to speak
+ * when nothing contradicts it.
+ *
+ * Why it still OVERRIDES a stored status at (3): same reasoning as off-shift
+ * at (2), just narrower. Someone who set 'active' this morning and is now in
+ * their standing lunch is not available, and the stored value is the stalest
+ * thing in the stack.
  *
  * Why the schedule wins at (2): a stored status is a snapshot of a moment
  * someone clicked a button, and it goes stale the second they close the tab.
@@ -70,5 +90,6 @@ export function resolveDisplayStatus(
   if (heartbeatStale) return 'offline';
 
   if (scheduleState === 'off-shift') return 'offline';
+  if (scheduleState === 'on-break') return 'break';
   return storedStatus ?? 'away';
 }

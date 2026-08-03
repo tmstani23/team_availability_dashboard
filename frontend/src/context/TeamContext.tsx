@@ -7,8 +7,9 @@ const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
 export const TeamProvider = ({ children }: { children: ReactNode }) => {
   // Standing weekly hours (one record per member per weekday) - replaced the
-  // old work-shifts fetch. One-off dated breaks (WorkShift) come back as their
-  // own fetch when the break-logging UI lands (see nextSteps.md).
+  // old work-shifts fetch. This is now the only shift data the app fetches:
+  // ad-hoc breaks were cut, and the standing lunch rides along on these same
+  // records as breakStart/breakEnd rather than needing a second request.
   const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

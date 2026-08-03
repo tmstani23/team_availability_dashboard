@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
     // path: '/' matters here - without it, the browser defaults a cookie's
     // path to the directory of the request that set it (here, '/api/auth'),
     // meaning it would only get sent back on /api/auth/* requests and never
-    // reach /api/team-members or /api/work-shifts.
+    // reach /api/team-members or /api/recurring-shifts.
     res.cookie('token', token, {
       httpOnly: true,
       sameSite: 'lax',

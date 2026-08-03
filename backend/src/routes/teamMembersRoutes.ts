@@ -4,6 +4,7 @@ import UserBadgeModel from '../models/UserBadge';
 import RecurringShiftModel from '../models/RecurringShift';
 import bcrypt from 'bcrypt';
 import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { validateDayEntry } from '../utils/shiftValidation';
 import { TeamMemberStatus } from '../types';
 
 const router = express.Router();
@@ -207,39 +208,52 @@ router.put('/:id/hours', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'You can only update your own hours' });
     }
 
-    const { week } = req.body; // array of { dayOfWeek, isOff, startTime?, endTime? }
+    // array of { dayOfWeek, isOff, startTime?, endTime?, breakStart?, breakEnd? }
+    const { week } = req.body;
 
     if (!Array.isArray(week)) {
       return res.status(400).json({ message: 'week must be an array of day entries' });
     }
 
     // Validate the whole payload before writing, so a bad entry can't
-    // half-update the week.
+    // half-update the week. The rules themselves live in shiftValidation.ts -
+    // same module the shape checks and break checks come from, so the API and
+    // HoursEditor can't drift apart on what a legal day looks like.
     for (const day of week) {
-      if (typeof day.dayOfWeek !== 'number' || day.dayOfWeek < 0 || day.dayOfWeek > 6) {
-        return res.status(400).json({ message: 'each entry needs a dayOfWeek 0-6' });
-      }
-      // Working days need both times; off days don't.
-      if (!day.isOff && (!day.startTime || !day.endTime)) {
-        return res.status(400).json({
-          message: `dayOfWeek ${day.dayOfWeek}: working days need startTime and endTime`
-        });
+      const problem = validateDayEntry(day);
+      if (problem) {
+        return res.status(400).json({ message: `dayOfWeek ${day?.dayOfWeek}: ${problem}` });
       }
     }
 
     // Upsert each day by (teamMemberId, dayOfWeek). Off days clear any
-    // leftover times.
+    // leftover times, and every write $unsets the break pair unless this
+    // payload sets one - otherwise removing a lunch in the editor would leave
+    // the old window sitting in the document forever, since $set only ever
+    // adds. Same reasoning as the existing time $unset on off days.
     for (const day of week) {
       if (day.isOff) {
         await RecurringShiftModel.updateOne(
           { teamMemberId: req.params.id, dayOfWeek: day.dayOfWeek },
-          { $set: { isOff: true }, $unset: { startTime: '', endTime: '' } },
+          {
+            $set: { isOff: true },
+            $unset: { startTime: '', endTime: '', breakStart: '', breakEnd: '' }
+          },
           { upsert: true }
         );
       } else {
+        const hasBreak = Boolean(day.breakStart && day.breakEnd);
         await RecurringShiftModel.updateOne(
           { teamMemberId: req.params.id, dayOfWeek: day.dayOfWeek },
-          { $set: { isOff: false, startTime: day.startTime, endTime: day.endTime } },
+          {
+            $set: {
+              isOff: false,
+              startTime: day.startTime,
+              endTime: day.endTime,
+              ...(hasBreak ? { breakStart: day.breakStart, breakEnd: day.breakEnd } : {})
+            },
+            ...(hasBreak ? {} : { $unset: { breakStart: '', breakEnd: '' } })
+          },
           { upsert: true }
         );
       }
