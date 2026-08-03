@@ -191,8 +191,19 @@ export function getScheduleState(
   if (resolution.breakStart && resolution.breakEnd) {
     const breakStart = toMinutes(resolution.breakStart);
     const breakEnd = toMinutes(resolution.breakEnd);
-    if (breakStart !== null && breakEnd !== null && breakStart < breakEnd) {
-      if (current >= breakStart && current < breakEnd) return 'on-break';
+    // Equal start and end is a zero-length window, not a 24-hour one - ignore
+    // it rather than treating everyone as permanently at lunch.
+    if (breakStart !== null && breakEnd !== null && breakStart !== breakEnd) {
+      // A break inside an OVERNIGHT shift can itself cross midnight (a
+      // 23:45-00:15 lunch on an 8pm-5am shift), so it needs the same union
+      // treatment the shift test above uses. Comparing breakStart < breakEnd
+      // and bailing - which this did before overnight shifts were allowed -
+      // silently never fired for exactly those windows.
+      const onBreak =
+        breakEnd <= breakStart
+          ? current >= breakStart || current < breakEnd
+          : current >= breakStart && current < breakEnd;
+      if (onBreak) return 'on-break';
     }
   }
 

@@ -1,6 +1,6 @@
 # Phase 2 — recurring lunch break
 
-**Model: Sonnet, medium effort.** Contained, clear spec, but it's the first
+**Contained, clear spec**, but it's the first
 change to the hours model since the recurring rework — so read
 `scheduleTime.ts` fully before editing it.
 

@@ -1,6 +1,6 @@
 # Phase 0 — config extraction
 
-**Model: Sonnet, low effort.** This is mechanical. No design decisions in it.
+**This is mechanical.** No design decisions in it.
 
 ## Why this exists
 

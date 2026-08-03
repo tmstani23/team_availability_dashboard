@@ -7,12 +7,14 @@ session as the opening prompt — it assumes the agent has read `CLAUDE.md`
 Run them in order. Each doc ends with a "log it" step that updates
 `nextSteps.md`, so the next phase starts from an accurate tracker.
 
-| Phase | File | Suggested model | Why |
-|---|---|---|---|
-| 0 | `phase-0-config-extraction.md` | Sonnet, low effort | Mechanical find-and-replace. No design decisions. |
-| 1 | `phase-1-polling-heartbeat.md` | Sonnet, medium | Real design already settled; one genuine race to reason about. |
-| 2 | `phase-2-recurring-lunch.md` | Sonnet, medium | Contained model change, clear spec. |
-| 3 | `phase-3-meetings.md` | Opus for the design pass, then Sonnet medium to build | New timezone concept — the one place a cheap model can quietly get it wrong. |
+| Phase | File | Shape of the work |
+|---|---|---|
+| 0 | `phase-0-config-extraction.md` | Mechanical find-and-replace. No design decisions. |
+| 1 | `phase-1-polling-heartbeat.md` | Design already settled; one genuine race to reason about. |
+| 2 | `phase-2-recurring-lunch.md` | Contained model change, clear spec. |
+| 3 | `phase-3-meetings.md` | A genuinely new timezone concept — settle the design before building. |
 
-Phase 3's doc is split into a design step and a build step for that reason.
-Don't merge them into one session.
+Phases 0-2 are complete. Phase 3's doc puts its design questions before its
+build steps deliberately: meetings store a UTC instant while everything else
+in the codebase stores wall-clock strings, and mixing the two is a bug that
+compiles, passes tests, and only shows up for people in another timezone.

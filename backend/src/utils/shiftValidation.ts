@@ -43,24 +43,54 @@ export function parseHHmm(time: unknown): number | null {
   return hours * 60 + minutes;
 }
 
+const MINUTES_PER_DAY = 24 * 60;
+
 /**
- * The three shift rules, mirroring HoursEditor exactly:
- * start before end, both on the hour, at least an hour long.
+ * How long a window lasts, in minutes, measured FORWARD from start to end and
+ * wrapping past midnight if it has to. This is what makes overnight shifts
+ * work: 20:00-05:00 is 9 hours, not the -15 a plain subtraction gives.
  *
- * Note this rejects overnight shifts (start >= end), which the RENDERING side
- * actually supports - scheduleTime.ts handles wraparound fine. That's a
- * deliberate carry-over of the existing frontend rule rather than a new
- * restriction: no UI can currently produce an overnight standing shift, so
- * allowing one through the API would create data no form could edit back.
+ * A start equal to its end yields 0, not 24 hours. Treating it as a full day
+ * would silently turn an obvious typo into a valid all-day shift.
+ */
+export function durationMinutes(start: number, end: number): number {
+  return (end - start + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+}
+
+/**
+ * Where a time sits RELATIVE TO the start of a shift, in minutes forward. This
+ * flattens the overnight case: inside a 20:00-05:00 shift, 23:00 is at offset
+ * 180 and 02:00 is at offset 360, so "is it inside" and "is it before that
+ * other time" become plain numeric comparisons again with no wrap special
+ * cases scattered through the callers.
+ */
+function offsetFromShiftStart(time: number, shiftStart: number): number {
+  return (time - shiftStart + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+}
+
+/**
+ * The three shift rules, mirroring HoursEditor exactly: at least an hour long,
+ * both times on the hour, and not zero-length.
+ *
+ * OVERNIGHT SHIFTS ARE ALLOWED (start > end, e.g. 20:00-05:00). An earlier
+ * version rejected them, carried over from the old AddTeamMemberForm - but
+ * the rendering side always supported them (getScheduleState treats them as a
+ * union of two pieces, HourRange carries isOvernight, isHourInRange handles
+ * the wrap, all tested), so the form was refusing to accept data the app
+ * could display perfectly well. The README lists cross-midnight handling as a
+ * design constraint, which made it a straight contradiction rather than a
+ * deliberate limit.
  */
 export function validateShiftTimes(startTime: unknown, endTime: unknown): string | null {
   const start = parseHHmm(startTime);
   const end = parseHHmm(endTime);
 
   if (start === null || end === null) return 'times must be HH:mm (e.g. 09:00)';
-  if (start >= end) return 'start time must be before end time';
   if (start % 60 !== 0 || end % 60 !== 0) return 'times must be on the hour (e.g. 09:00)';
-  if (end - start < 60) return 'shift must be at least 1 hour long';
+
+  const length = durationMinutes(start, end);
+  if (length === 0) return 'start and end time cannot be the same';
+  if (length < 60) return 'shift must be at least 1 hour long';
 
   return null;
 }
@@ -91,14 +121,31 @@ export function validateBreakTimes(
   const end = parseHHmm(breakEnd);
 
   if (start === null || end === null) return 'break times must be HH:mm (e.g. 12:00)';
-  if (start >= end) return 'break start must be before break end';
   if (start % BREAK_GRANULARITY_MINUTES !== 0 || end % BREAK_GRANULARITY_MINUTES !== 0) {
     return 'break times must land on a quarter hour (e.g. 12:00, 12:15, 12:30)';
   }
-  // Inside the shift, inclusive at both edges: a break running right up to the
-  // end of the shift is odd but not wrong, and rejecting it would be a rule
-  // nobody asked for.
-  if (start < shiftStartMinutes || end > shiftEndMinutes) {
+
+  const shiftLength = durationMinutes(shiftStartMinutes, shiftEndMinutes);
+  const shiftIsOvernight = shiftEndMinutes <= shiftStartMinutes;
+
+  // On a same-day shift, a backwards break is almost always a typo, so say so
+  // directly. On an OVERNIGHT shift the same comparison is meaningless - a
+  // 23:45-00:15 lunch is legitimately "backwards" in clock terms - so that
+  // case is left to the containment check below, which reasons in offsets
+  // instead and can tell a wrapping break from an out-of-range one.
+  if (!shiftIsOvernight && start >= end) return 'break start must be before break end';
+
+  // Measured forward from the shift's own start, so the wrap disappears.
+  const startOffset = offsetFromShiftStart(start, shiftStartMinutes);
+  const endOffset = offsetFromShiftStart(end, shiftStartMinutes);
+
+  if (startOffset === endOffset) return 'break start must be before break end';
+
+  // Inside the shift, inclusive at the far edge: a break running right up to
+  // the end of the shift is odd but not wrong, and rejecting it would be a
+  // rule nobody asked for. endOffset <= startOffset means the break runs past
+  // the shift's start again, i.e. straight out of the shift.
+  if (startOffset >= shiftLength || endOffset > shiftLength || endOffset < startOffset) {
     return 'break must fall inside the shift hours';
   }
 

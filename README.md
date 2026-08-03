@@ -10,7 +10,7 @@ The problem this solves: coordinating engineers across time zones normally means
 
 - **Zero manual math** — all UTC / time-zone conversion stays hidden behind the UI; a user only ever sees their own local clock.
 - **High scannability** — a manager or teammate should be able to read someone's current availability in under two seconds.
-- **Data accuracy across date boundaries** — shifts that cross midnight are handled correctly, and because this is a *presence* tool ("who is on shift right now?"), each member's current shift resolves against **their own local weekday**, not the viewer's. Near midnight two people can be on different weekdays; the grid shows each person's real current day, then converts the hours to the viewer's clock.
+- **Data accuracy across date boundaries** — overnight shifts (e.g. 8pm–5am) are supported end to end, including a standing lunch that itself crosses midnight; durations are measured forward with a wrap rather than subtracted, and break containment is expressed as an offset from the shift's own start so the wrap never leaks into the comparison. Because this is a *presence* tool ("who is on shift right now?"), each member's current shift resolves against **their own local weekday**, not the viewer's. Near midnight two people can be on different weekdays; the grid shows each person's real current day, then converts the hours to the viewer's clock.
 
 ## Core Project Features
 

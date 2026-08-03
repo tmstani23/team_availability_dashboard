@@ -1,6 +1,6 @@
 # Phase 1 — polling + heartbeat presence
 
-**Model: Sonnet, medium effort.** The design is already settled (below); the
+**The design is already settled** (below); the
 work is implementation plus one genuine race condition to reason about.
 
 **Prerequisite: Phase 0 must be done.** New fetches should use `API_BASE`.

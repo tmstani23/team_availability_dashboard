@@ -25,7 +25,16 @@ const COLOR_CARVE = '#3f3f46';    // zinc-700 - carved out of an active block
 // it drowns the grid - this puts the reference exactly where there's something
 // to measure against, and nowhere else.
 const TICK_COLOR = 'rgba(255,255,255,0.28)';
-const TICKS = `repeating-linear-gradient(90deg, transparent 0 25%, ${TICK_COLOR} 25% calc(25% + 1px))`;
+
+// Three 1px lines centred on the quarter marks. Written out explicitly rather
+// than as a repeating-linear-gradient: the repeating version had a unit of
+// `25% + 1px`, so each tick drifted a pixel further right than the last and
+// the pattern wrapped far enough to paint a spurious fourth line at the cell's
+// edge. Four slightly-off lines read as a rendering glitch rather than a ruler.
+const tick = (position: number) =>
+  `transparent calc(${position}% - 0.5px), ${TICK_COLOR} calc(${position}% - 0.5px), ` +
+  `${TICK_COLOR} calc(${position}% + 0.5px), transparent calc(${position}% + 0.5px)`;
+const TICKS = `linear-gradient(90deg, transparent, ${tick(25)}, ${tick(50)}, ${tick(75)}, transparent)`;
 
 interface ScheduleCellProps {
   // Inside the shift block (or, on the overlap row, an hour everyone shares).

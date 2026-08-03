@@ -1,13 +1,10 @@
 # Phase 3 — meeting model
 
-**Two sessions, deliberately. Do not merge them.**
-
-- **Step A (design pass): Opus, or Sonnet high effort.** Four questions to
-  settle plus one genuinely new timezone concept. This is the only place in
-  the remaining roadmap where a cheap model can produce something that
-  compiles, passes tests, and is quietly wrong.
-- **Step B (build): Sonnet, medium effort.** Once Step A's decisions are
-  written into `nextSteps.md`, the build is ordinary work.
+**Settle the design before writing code.** Four questions to answer plus one
+genuinely new timezone concept — this is the place in the roadmap where an
+implementation can compile, pass its tests, and still be quietly wrong. The
+design step and the build step are separate pieces of work in that order, but
+they can happen in one session.
 
 **Prerequisite: Phase 2**, specifically its generic carve-out rendering —
 meetings reuse it.
@@ -53,7 +50,7 @@ Consequences:
   purpose because recurring records carry no date — meetings do carry one,
   and must use it.
 
-## Step A — design pass (settle these, write them into nextSteps.md)
+## Design questions (settle these, write them into nextSteps.md)
 
 1. **Who can create a meeting for whom?** Compare to the existing pattern:
    self-service writes trust `req.user.teamMemberId` from the JWT, never a
@@ -78,17 +75,17 @@ Also read the existing `RecurringShift` and `WorkShift` history in
 deleted, and it's worth being sure the meeting model isn't reinventing its
 mistakes.
 
-Step A produces **no code** beyond possibly a type sketch. It ends with a
-`### DECISION: meeting model — design pass` block in `nextSteps.md`.
+The design step produces **no code** beyond possibly a type sketch. It ends
+with a `### DECISION: meeting model` block in `nextSteps.md`.
 
-## Step B — build
+## Build
 
-Only start once Step A's decisions are written down. Broad shape:
+Only start once those decisions are written down. Broad shape:
 
 - `Meeting` model: title, `startsAt` / `endsAt` as UTC `Date`, attendee refs
   to `TeamMember`. Index on `startsAt`.
 - Routes: create, list (probably scoped to a date range), delete. Auth per
-  Step A's decision 1.
+  design decision 1.
 - New `scheduleTime.ts` function converting a UTC instant to the viewer's
   local hour range, anchored to the meeting's own date.
 - Grid rendering via Phase 2's generic carve-out.

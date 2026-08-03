@@ -614,3 +614,84 @@ describe('resolveDisplayStatus - break layer (Phase 2)', () => {
     expect(resolveDisplayStatus('active', 'on-break', undefined, NOW, STALE)).toBe('break');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Overnight shifts with a lunch inside them.
+//
+// Overnight shifts were always renderable but were rejected by the FORM until
+// 8/2 - the validator carried a plain start < end rule over from the old
+// AddTeamMemberForm, so the app refused to accept data it could display fine.
+// Now that they're allowed, the break window inside one can itself cross
+// midnight, which the original break check silently never matched.
+//
+// The reference case throughout is a Sunday 20:00-05:00 shift with a
+// 23:45-00:15 lunch - a midnight lunch inside a midnight-crossing shift.
+// ---------------------------------------------------------------------------
+describe('getScheduleState - overnight shifts', () => {
+  // Pinned instants inside and around an 8pm-5am NY shift.
+  const SUN_2200_NY = dayjs.tz('2026-07-19 22:00', 'America/New_York'); // mid-shift, before midnight
+  const MON_0200_NY = dayjs.tz('2026-07-20 02:00', 'America/New_York'); // mid-shift, after midnight
+  const SUN_2350_NY = dayjs.tz('2026-07-19 23:50', 'America/New_York'); // inside the midnight lunch
+  const MON_0010_NY = dayjs.tz('2026-07-20 00:10', 'America/New_York'); // still inside it
+  const MON_0020_NY = dayjs.tz('2026-07-20 00:20', 'America/New_York'); // just after it
+  const MON_0600_NY = dayjs.tz('2026-07-20 06:00', 'America/New_York'); // after the shift ends
+
+  it('is on-shift on both sides of midnight', () => {
+    expect(getScheduleState(working('20:00', '05:00'), 'America/New_York', SUN_2200_NY))
+      .toBe('on-shift');
+    expect(getScheduleState(working('20:00', '05:00'), 'America/New_York', MON_0200_NY))
+      .toBe('on-shift');
+  });
+
+  it('is off-shift outside an overnight shift', () => {
+    expect(getScheduleState(working('20:00', '05:00'), 'America/New_York', MON_0600_NY))
+      .toBe('off-shift');
+  });
+
+  it('detects a lunch that itself crosses midnight', () => {
+    // The case the old breakStart < breakEnd guard silently skipped.
+    const shift = working('20:00', '05:00', '23:45', '00:15');
+    expect(getScheduleState(shift, 'America/New_York', SUN_2350_NY)).toBe('on-break');
+    expect(getScheduleState(shift, 'America/New_York', MON_0010_NY)).toBe('on-break');
+  });
+
+  it('leaves the midnight lunch cleanly, back to on-shift', () => {
+    const shift = working('20:00', '05:00', '23:45', '00:15');
+    expect(getScheduleState(shift, 'America/New_York', MON_0020_NY)).toBe('on-shift');
+    expect(getScheduleState(shift, 'America/New_York', MON_0200_NY)).toBe('on-shift');
+  });
+
+  it('a normal lunch inside an overnight shift still works', () => {
+    // Not every lunch on an overnight shift crosses midnight.
+    const shift = working('20:00', '05:00', '22:00', '22:30');
+    expect(getScheduleState(shift, 'America/New_York', SUN_2200_NY)).toBe('on-break');
+    expect(getScheduleState(shift, 'America/New_York', MON_0200_NY)).toBe('on-shift');
+  });
+
+  it('ignores a zero-length break rather than treating it as all day', () => {
+    // Equal start and end is a typo, not a 24-hour lunch.
+    expect(getScheduleState(working('09:00', '17:00', '12:00', '12:00'), 'America/New_York', MON_NOON_NY))
+      .toBe('on-shift');
+  });
+});
+
+describe('resolveBreakCarveOutInViewerTz - overnight shifts', () => {
+  const SUN_2200_NY = dayjs.tz('2026-07-19 22:00', 'America/New_York');
+
+  it('flags a midnight lunch as an overnight carve-out', () => {
+    expect(resolveBreakCarveOutInViewerTz(
+      working('20:00', '05:00', '23:45', '00:15'),
+      'America/New_York', 'America/New_York', SUN_2200_NY
+    )).toEqual({ startHour: 23.75, endHour: 0.25, isOvernight: true });
+  });
+
+  it('splits that carve-out across the 23 and 0 cells', () => {
+    const carve = resolveBreakCarveOutInViewerTz(
+      working('20:00', '05:00', '23:45', '00:15'),
+      'America/New_York', 'America/New_York', SUN_2200_NY
+    );
+    expect(carveOutFractionInHour(carve, 23)).toEqual({ start: 0.75, end: 1 });
+    expect(carveOutFractionInHour(carve, 0)).toEqual({ start: 0, end: 0.25 });
+    expect(carveOutFractionInHour(carve, 22)).toBeNull();
+  });
+});

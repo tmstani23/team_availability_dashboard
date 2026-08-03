@@ -5,7 +5,12 @@ import { useTeam } from '../context/useTeam';
 import type { DayOfWeek, RecurringShift } from '../types';
 import { homePathForRole } from '../utils/routes';
 import { API_BASE } from '../config';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 interface HoursEditorProps {
   // 'self' reads the target member from AuthContext (own JWT identity);
@@ -50,6 +55,50 @@ const defaultDay = (): DayEntry => ({
   breakEnd: '12:30',
 });
 
+const MINUTES_PER_DAY = 24 * 60;
+
+// "HH:mm" -> minutes since midnight, or null if it isn't that shape. Null
+// rather than NaN because every comparison against NaN is silently false,
+// which would let a malformed time pass validation unnoticed.
+const toMinutes = (time: string): number | null => {
+  const match = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+// Minutes from `start` forward to `end`, wrapping past midnight if needed.
+// This is the whole trick behind overnight support: 20:00 -> 05:00 is 540
+// minutes, not the -900 a plain subtraction gives. Equal times give 0, not a
+// full day - an all-day shift from a typo would be worse than an error.
+const forwardDuration = (start: number, end: number): number =>
+  (end - start + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+
+// Reads `moment` on another zone's clock, or null if the zone string is junk.
+// dayjs throws on an unknown timezone, and a bad value stored on one member
+// shouldn't take down the whole editor.
+const inZone = (moment: Dayjs, tz: string | undefined): Dayjs | null => {
+  if (!tz) return null;
+  try {
+    return moment.tz(tz);
+  } catch {
+    return null;
+  }
+};
+
+// "+15h" / "-5h30m". Computed live from two moments, never stored: the gap
+// between two zones changes twice a year AND the two ends rarely switch on the
+// same date, so Sydney-to-Chicago is 15, 16 or 17 hours depending on the week.
+const formatOffset = (target: Dayjs, viewer: Dayjs): string => {
+  const diff = target.utcOffset() - viewer.utcOffset();
+  const sign = diff < 0 ? '-' : '+';
+  const hours = Math.floor(Math.abs(diff) / 60);
+  const minutes = Math.abs(diff) % 60;
+  return `${sign}${hours}h${minutes ? `${minutes}m` : ''}`;
+};
+
 const emptyWeek = (): Record<DayOfWeek, DayEntry> => ({
   0: defaultDay(), 1: defaultDay(), 2: defaultDay(), 3: defaultDay(),
   4: defaultDay(), 5: defaultDay(), 6: defaultDay(),
@@ -58,7 +107,11 @@ const emptyWeek = (): Record<DayOfWeek, DayEntry> => ({
 const HoursEditor = ({ mode }: HoursEditorProps) => {
   const { teamMemberId, role } = useAuth();
   const { id: paramId } = useParams();
-  const { members, refreshAllData } = useTeam();
+  // `now` ticks with the poll (see useRefreshTick), so the clocks below stay
+  // live instead of freezing at mount - which matters most in exactly the
+  // situation this display exists for: sitting on this page near a date
+  // boundary in someone else's timezone.
+  const { members, refreshAllData, now } = useTeam();
 
   // Admin mode is always reached from a member's card in /admin/manage, so
   // that's where Back returns. Self mode has to be role-aware: an admin
@@ -70,6 +123,26 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
 
   const targetId = mode === 'self' ? teamMemberId : paramId;
   const targetMember = members.find(m => m._id === targetId);
+
+  // The clocks. `viewerNow` is the browser's own time - deliberately NOT
+  // TeamContext.viewerTimezone, which is the legacy "simulate as user"
+  // dropdown (tech debt, see nextSteps.md). "Your time" here has to mean the
+  // person actually typing, not whoever is being previewed.
+  const viewerNow = now;
+  const targetNow = inZone(now, targetMember?.timezone);
+
+  // Which weekday it currently is FOR THE TARGET, used to mark their row.
+  // This is the whole point: every other consumer of this data (sidebar,
+  // grid) resolves by the member's own weekday, and the editor was the one
+  // place that didn't - so an admin in Chicago would edit "Friday" meaning
+  // "today" while their Sydney colleague was already into Saturday, and the
+  // change landed on the wrong row with nothing on screen to contradict it.
+  const targetToday = targetNow ? (targetNow.day() as DayOfWeek) : null;
+
+  // Only worth calling out the difference when the two clocks disagree about
+  // the date - on the same day it's noise, and in self mode it's always you.
+  const crossesDateBoundary =
+    targetNow !== null && targetNow.format('YYYY-MM-DD') !== viewerNow.format('YYYY-MM-DD');
 
   const [week, setWeek] = useState<Record<DayOfWeek, DayEntry>>(emptyWeek());
   const [saving, setSaving] = useState(false);
@@ -88,6 +161,19 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
   // member yet."
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const loading = loadedFor !== targetId;
+
+  // Set when the GET fails. This blocks the FORM from rendering at all, which
+  // matters more than it looks: every day defaults to a prefilled 9-5, so a
+  // failed load that still showed the form would present a complete, plausible
+  // week that isn't this member's - and Save Week would happily write it over
+  // their real hours. Refusing to edit what we couldn't read is the only safe
+  // behavior. (Pre-existing hazard; the old finally{setLoading(false)} had the
+  // same effect.)
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // Bumped by the retry button. It's in the effect's deps so retrying actually
+  // refires the fetch - targetId alone hasn't changed, so nothing else would.
+  const [reloadToken, setReloadToken] = useState(0);
 
   // Fetch the target's existing hours whenever the target changes (e.g. an
   // admin navigating from one member's hours page to another's without a
@@ -132,11 +218,12 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
           return next;
         });
         setError('');
+        setLoadFailed(false);
         setLoadedFor(targetId);
       })
       .catch(() => {
         if (cancelled) return;
-        setError('Failed to load hours');
+        setLoadFailed(true);
         // Mark it loaded even on failure, otherwise the page sticks on
         // "Loading hours..." forever and the error never gets a chance to
         // render (the loading branch returns before it).
@@ -144,7 +231,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       });
 
     return () => { cancelled = true; };
-  }, [targetId]);
+  }, [targetId, reloadToken]);
 
   const updateDay = (day: DayOfWeek, patch: Partial<DayEntry>) => {
     // Clear the "Hours saved" banner as soon as anything changes, so it can't
@@ -157,26 +244,39 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
     setError('');
     setSavedMsg('');
 
-    // Same shift-granularity rule AddTeamMemberForm used to enforce (now
-    // removed from there - see nextSteps.md Phase 6). ScheduleGrid renders
-    // in whole-hour blocks, so a shift that doesn't land on the hour would
-    // silently misrender rather than error anywhere obvious.
+    // Mirrors backend/src/utils/shiftValidation.ts exactly - the API enforces
+    // these too (since Phase 2), this copy just gives instant feedback. If you
+    // change a rule, change it in both.
+    //
+    // Everything below works in minutes-since-midnight and measures durations
+    // FORWARD with a wrap, which is what lets an overnight shift (20:00-05:00)
+    // through. A plain start < end comparison used to reject those, even
+    // though the grid has always rendered them correctly.
     for (const day of DAYS) {
       const entry = week[day];
       if (entry.isOff) continue;
 
-      const start = dayjs(`2026-01-01T${entry.startTime}`);
-      const end = dayjs(`2026-01-01T${entry.endTime}`);
+      const start = toMinutes(entry.startTime);
+      const end = toMinutes(entry.endTime);
 
-      if (!start.isBefore(end)) {
-        setError(`${DAY_LABELS[day]}: start time must be before end time`);
+      if (start === null || end === null) {
+        setError(`${DAY_LABELS[day]}: times must be HH:mm (e.g. 09:00)`);
         return;
       }
-      if (start.minute() !== 0 || end.minute() !== 0) {
+      // ScheduleGrid renders whole-hour blocks, so a shift boundary that
+      // doesn't land on the hour would silently misrender rather than error
+      // anywhere obvious.
+      if (start % 60 !== 0 || end % 60 !== 0) {
         setError(`${DAY_LABELS[day]}: times must be on the hour (e.g. 09:00)`);
         return;
       }
-      if (end.diff(start, 'minute') < 60) {
+
+      const shiftLength = forwardDuration(start, end);
+      if (shiftLength === 0) {
+        setError(`${DAY_LABELS[day]}: start and end time cannot be the same`);
+        return;
+      }
+      if (shiftLength < 60) {
         setError(`${DAY_LABELS[day]}: shift must be at least 1 hour long`);
         return;
       }
@@ -187,18 +287,37 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       // draws a break as a fractional carve-out inside its hour cell, so it
       // can be finer-grained than the cell without misrendering - which a
       // shift boundary can't, since that's where a whole cell lights up.
-      const breakStart = dayjs(`2026-01-01T${entry.breakStart}`);
-      const breakEnd = dayjs(`2026-01-01T${entry.breakEnd}`);
+      const breakStart = toMinutes(entry.breakStart);
+      const breakEnd = toMinutes(entry.breakEnd);
 
-      if (!breakStart.isBefore(breakEnd)) {
-        setError(`${DAY_LABELS[day]}: break start must be before break end`);
+      if (breakStart === null || breakEnd === null) {
+        setError(`${DAY_LABELS[day]}: break times must be HH:mm (e.g. 12:00)`);
         return;
       }
-      if (breakStart.minute() % 15 !== 0 || breakEnd.minute() % 15 !== 0) {
+      if (breakStart % 15 !== 0 || breakEnd % 15 !== 0) {
         setError(`${DAY_LABELS[day]}: break times must land on a quarter hour (e.g. 12:00, 12:15)`);
         return;
       }
-      if (breakStart.isBefore(start) || breakEnd.isAfter(end)) {
+
+      // On a same-day shift a backwards break is almost certainly a typo, so
+      // name it. On an overnight shift "backwards" is meaningless - a
+      // 23:45-00:15 lunch is legitimately backwards on the clock - so that
+      // case falls through to the containment check, which reasons in offsets
+      // from the shift start and can tell wrapping from out-of-range.
+      const shiftIsOvernight = end <= start;
+      if (!shiftIsOvernight && breakStart >= breakEnd) {
+        setError(`${DAY_LABELS[day]}: break start must be before break end`);
+        return;
+      }
+
+      const startOffset = forwardDuration(start, breakStart);
+      const endOffset = forwardDuration(start, breakEnd);
+
+      if (startOffset === endOffset) {
+        setError(`${DAY_LABELS[day]}: break start must be before break end`);
+        return;
+      }
+      if (startOffset >= shiftLength || endOffset > shiftLength || endOffset < startOffset) {
         setError(`${DAY_LABELS[day]}: break must fall inside the shift hours`);
         return;
       }
@@ -255,6 +374,39 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
   if (!targetId) return null;
   if (loading) return <div className="p-6 text-zinc-400">Loading hours...</div>;
 
+  // Deliberately renders INSTEAD of the form - see loadFailed above. Showing a
+  // prefilled default week we couldn't verify invites overwriting real data.
+  if (loadFailed) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto">
+        <Link
+          to={backTo}
+          className="inline-block mb-4 text-sm text-zinc-400 hover:text-white transition-colors"
+        >
+          ← Back
+        </Link>
+        <h2 className="text-2xl font-semibold text-white mb-2">
+          {mode === 'self' ? 'My Hours' : `Editing Hours for ${targetMember?.name ?? '...'}`}
+        </h2>
+        <p className="text-red-400 text-sm mb-1">Couldn't load these hours.</p>
+        <p className="text-zinc-400 text-sm mb-4">
+          Nothing has been changed. The form is hidden on purpose - editing a
+          week we couldn't read risks saving over the real one.
+        </p>
+        <button
+          onClick={() => {
+            setLoadFailed(false);
+            setLoadedFor(null);
+            setReloadToken(token => token + 1);
+          }}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <Link
@@ -267,9 +419,38 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       <h2 className="text-2xl font-semibold text-white mb-1">
         {mode === 'self' ? 'My Hours' : `Editing Hours for ${targetMember?.name ?? '...'}`}
       </h2>
-      <p className="text-sm text-zinc-400 mb-6">
+      <p className="text-sm text-zinc-400 mb-3">
         Standing weekly hours - these repeat every week until changed.
       </p>
+
+      {/* Whose clock these inputs are in. Never stated before, and it's the
+          root of the confusion the "today for them" highlight below only
+          treats a symptom of: an admin setting 09:00-17:00 for a Sydney
+          member is setting HER 9am, not theirs. Self mode skips it - "times
+          are in your local time" on your own page is noise. */}
+      {mode === 'admin' && targetNow && targetMember && (
+        <div className="text-sm mb-6 bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-3">
+          <div className="text-zinc-300">
+            Times below are in <span className="text-white font-medium">{targetMember.name}'s</span>{' '}
+            local time
+            <span className="text-zinc-500"> ({targetMember.timezone})</span>.
+          </div>
+          <div className="text-zinc-400 mt-1">
+            Their clock: <span className="text-white">{targetNow.format('dddd, h:mm A')}</span>
+            <span className="text-zinc-600"> · </span>
+            Yours: <span className="text-white">{viewerNow.format('dddd, h:mm A')}</span>
+            <span className="text-zinc-500"> ({formatOffset(targetNow, viewerNow)})</span>
+          </div>
+          {/* Only surfaced when the two clocks actually disagree about the
+              date, which is the case that caused a real mis-edit (7/31 QA). */}
+          {crossesDateBoundary && (
+            <div className="text-amber-400/90 mt-1.5">
+              Heads up: it's already {targetNow.format('dddd')} for them, but{' '}
+              {viewerNow.format('dddd')} for you.
+            </div>
+          )}
+        </div>
+      )}
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
       {savedMsg && <p className="text-green-400 text-sm mb-4">{savedMsg}</p>}
@@ -277,13 +458,26 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       <div className="space-y-3">
         {DAYS.map(day => {
           const entry = week[day];
+          // Their current weekday, not the viewer's - see targetToday above.
+          const isTargetToday = day === targetToday;
           return (
             <div
               key={day}
-              className="bg-zinc-800 border border-zinc-700/60 rounded-lg p-3"
+              className={`rounded-lg p-3 border ${
+                isTargetToday
+                  ? 'bg-zinc-800 border-violet-500/70'
+                  : 'bg-zinc-800 border-zinc-700/60'
+              }`}
             >
               <div className="flex items-center gap-4">
-                <div className="w-28 text-white font-medium text-sm">{DAY_LABELS[day]}</div>
+                <div className="w-28 text-white font-medium text-sm">
+                  {DAY_LABELS[day]}
+                  {isTargetToday && (
+                    <div className="text-[10px] font-normal text-violet-300 whitespace-nowrap">
+                      {mode === 'admin' ? 'today for them' : 'today'}
+                    </div>
+                  )}
+                </div>
 
                 <label className="flex items-center gap-2 text-sm text-zinc-300">
                   <input
