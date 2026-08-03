@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/useTeam';
 import {
   resolveHourRangeInViewerTz,
   resolveBreakCarveOutInViewerTz,
@@ -46,7 +46,7 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
           // Resolve each member's shift + hourRange ONCE here, instead of
           // recomputing it separately for the member rows and the overlap
           // row below - both now read from this same array.
-          const memberRows = members.map((member: any) => {
+          const memberRows = members.map(member => {
             // Resolve today's standing shift by the member's OWN weekday, then
             // convert to the viewer's tz. off / unset yield a null range, so
             // those rows render empty.

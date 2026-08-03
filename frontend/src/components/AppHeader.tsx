@@ -1,6 +1,6 @@
 // frontend/src/components/AppHeader.tsx
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import type { ReactNode } from 'react';
 
 interface AppHeaderProps {

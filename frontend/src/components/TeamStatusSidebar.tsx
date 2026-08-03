@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
-import { useTeam } from '../context/TeamContext';
-import { useAuth } from '../context/AuthContext';
+import { useTeam } from '../context/useTeam';
+import { useAuth } from '../context/useAuth';
 import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
@@ -47,7 +47,7 @@ const TeamStatusSidebar = () => {
           onChange={(e) => setViewer(e.target.value)}
           className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-2 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
         >
-          {members.map((m: any) => (
+          {members.map(m => (
             <option key={m._id} value={m._id}>{m.name}</option>
           ))}
         </select>

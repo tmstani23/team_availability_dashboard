@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { useTeam } from '../context/TeamContext';
+import { useAuth } from '../context/useAuth';
+import { useTeam } from '../context/useTeam';
 import type { DayOfWeek, RecurringShift } from '../types';
 import { homePathForRole } from '../utils/routes';
 import { API_BASE } from '../config';
@@ -72,18 +72,33 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
   const targetMember = members.find(m => m._id === targetId);
 
   const [week, setWeek] = useState<Record<DayOfWeek, DayEntry>>(emptyWeek());
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [savedMsg, setSavedMsg] = useState('');
+
+  // Which member's hours the `week` state currently holds. Loading is DERIVED
+  // from this rather than being its own useState.
+  //
+  // Why: setting loading/error synchronously at the top of the effect below
+  // triggers a second render pass before the browser paints, which is what
+  // react-hooks/set-state-in-effect flags (new in eslint-plugin-react-hooks
+  // v7). Deriving it means the effect only ever calls setState from inside an
+  // async callback, which is the pattern that rule is steering toward. It also
+  // reads more directly: "loading" IS "the data on screen isn't for this
+  // member yet."
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = loadedFor !== targetId;
 
   // Fetch the target's existing hours whenever the target changes (e.g. an
   // admin navigating from one member's hours page to another's without a
   // full remount). Days with no saved record just keep the emptyWeek default.
   useEffect(() => {
     if (!targetId) return;
-    setLoading(true);
-    setError('');
+
+    // Guards against a slow response for a PREVIOUS target landing after the
+    // admin has already switched members and overwriting the newer data.
+    // Cheap to add now that the effect has a cleanup function anyway.
+    let cancelled = false;
 
     fetch(`${API_BASE}/api/team-members/${targetId}/hours`, { credentials: 'include' })
       .then(res => {
@@ -94,8 +109,12 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         return res.json();
       })
       .then((hours: RecurringShift[]) => {
-        setWeek(prev => {
-          const next = { ...prev };
+        if (cancelled) return;
+        setWeek(() => {
+          // Start from a fresh default week rather than the previous target's
+          // values - otherwise an admin switching members would inherit rows
+          // the new member has no record for.
+          const next = emptyWeek();
           for (const record of hours) {
             // Both break fields present = a real break. A half-set pair is
             // treated as no break rather than half-loaded, matching how
@@ -112,9 +131,19 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
           }
           return next;
         });
+        setError('');
+        setLoadedFor(targetId);
       })
-      .catch(() => setError('Failed to load hours'))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (cancelled) return;
+        setError('Failed to load hours');
+        // Mark it loaded even on failure, otherwise the page sticks on
+        // "Loading hours..." forever and the error never gets a chance to
+        // render (the loading branch returns before it).
+        setLoadedFor(targetId);
+      });
+
+    return () => { cancelled = true; };
   }, [targetId]);
 
   const updateDay = (day: DayOfWeek, patch: Partial<DayEntry>) => {

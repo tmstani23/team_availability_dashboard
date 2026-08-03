@@ -1,4 +1,4 @@
-import { useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/useTeam';
 import TeamMemberCard from './TeamMemberCard';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';

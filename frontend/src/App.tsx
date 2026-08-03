@@ -8,7 +8,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 import HoursEditor from './components/HoursEditor';
 import FirstRunHoursGate from './components/FirstRunHoursGate';
 import { TeamProvider } from './context/TeamContext';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/useAuth';
 import { homePathForRole } from './utils/routes';
 
 // Kicks an already-logged-in user off /login straight to their dashboard,

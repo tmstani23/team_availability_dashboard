@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/useTeam';
 import { API_BASE } from '../config';
 
 const AddTeamMemberForm = () => {

@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
-import type { TeamContextType, TeamMemberStatus, RecurringShift } from '../types';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import type { TeamMemberStatus, RecurringShift, TeamMember } from '../types';
 import { API_BASE } from '../config';
 import { useRefreshTick } from '../hooks/useRefreshTick';
-
-const TeamContext = createContext<TeamContextType | undefined>(undefined);
+// Context object + useTeam live in their own module so this file exports only
+// a component, which is what Fast Refresh needs to hot-reload it.
+import { TeamContext } from './useTeam';
 
 export const TeamProvider = ({ children }: { children: ReactNode }) => {
   // Standing weekly hours (one record per member per weekday) - replaced the
@@ -11,7 +12,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   // ad-hoc breaks were cut, and the standing lunch rides along on these same
   // records as breakStart/breakEnd rather than needing a second request.
   const [recurringShifts, setRecurringShifts] = useState<RecurringShift[]>([]);
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Race fix (Phase 1): setStatus does an optimistic update, then awaits the
@@ -50,23 +51,26 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
         fetch(`${API_BASE}/api/team-members`, { credentials: 'include' }),
         fetch(`${API_BASE}/api/recurring-shifts`, { credentials: 'include' })
       ]);
-      const membersData = await membersRes.json();
-      const shiftsData = await shiftsRes.json();
+      // Typed unknown, not trusted as the happy-path shape: both endpoints
+      // return an array on success but a { message } object on failure, so
+      // these get narrowed with Array.isArray before use rather than being
+      // asserted into the right type and blowing up later.
+      const membersData: unknown = await membersRes.json();
+      const shiftsData: unknown = await shiftsRes.json();
+
+      const fetchedMembers = Array.isArray(membersData) ? (membersData as TeamMember[]) : [];
 
       // Re-apply any in-flight optimistic status writes over the freshly
       // polled data - see pendingStatusWrites above. Without this, a poll
       // landing mid-write clobbers the optimistic value with the pre-write
       // server state until the PATCH resolves.
-      const withPendingWrites = Array.isArray(membersData)
-        ? membersData.map((member: any) =>
-            pendingStatusWrites.current.has(member._id)
-              ? { ...member, status: pendingStatusWrites.current.get(member._id) }
-              : member
-          )
-        : [];
+      const withPendingWrites = fetchedMembers.map(member => {
+        const pending = pendingStatusWrites.current.get(member._id);
+        return pending ? { ...member, status: pending } : member;
+      });
 
       setMembers(withPendingWrites);
-      setRecurringShifts(Array.isArray(shiftsData) ? shiftsData : []);
+      setRecurringShifts(Array.isArray(shiftsData) ? (shiftsData as RecurringShift[]) : []);
     } catch (err) {
       console.error("Failed to load data:", err);
     } finally {
@@ -98,7 +102,16 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
     // real value to roll back to if the request fails. (The old toggle could
     // derive the rollback value by flipping a boolean; with four states we
     // have to remember what it actually was.)
-    const previousStatus = members.find(member => member._id === id)?.status;
+    //
+    // If the member isn't in the list at all there's nothing to update OR
+    // roll back to - most likely they were deleted in another session between
+    // the render that drew the picker and this click. Bail out rather than
+    // proceeding: the rollback path would otherwise write `status: undefined`
+    // into a member object on failure. (This was invisible while `members`
+    // was typed `any[]`.)
+    const existing = members.find(member => member._id === id);
+    if (!existing) return;
+    const previousStatus = existing.status;
 
     // Mark this member's write as in-flight so a poll landing before the
     // PATCH resolves doesn't overwrite the optimistic value (see
@@ -160,10 +173,4 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
       {children}
     </TeamContext.Provider>
   );
-};
-
-export const useTeam = () => {
-  const context = useContext(TeamContext);
-  if (!context) throw new Error('useTeam must be used within a TeamProvider');
-  return context;
 };

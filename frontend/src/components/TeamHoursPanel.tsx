@@ -1,4 +1,4 @@
-import { useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/useTeam';
 import { getCurrentShiftForMember, resolveHourRangeInViewerTz, formatHourRange } from '../utils/scheduleTime';
 
 interface TeamHoursPanelProps {
@@ -22,7 +22,7 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
       <h3 className="text-sm font-semibold mb-3 text-zinc-300">Compare Availability</h3>
 
       <div className="flex flex-wrap gap-2">
-        {members.map((member: any) => {
+        {members.map(member => {
           // Same lookup ScheduleGrid uses for its rows - reused here so the
           // hours shown in this checklist always match what the grid renders.
           const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);

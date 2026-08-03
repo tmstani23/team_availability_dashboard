@@ -1,3 +1,5 @@
+import type { Dayjs } from 'dayjs';
+
 // The presence states. Mirrors the backend type. 'active' is the old
 // "available". 'offline' and 'break' are both schedule-derived (see
 // resolveDisplayStatus) and never hand-settable; the rest are set by hand.
@@ -48,11 +50,15 @@ export interface TeamContextType {
   // Ticking clock from useRefreshTick - components computing schedule/
   // heartbeat state should read time from here, not call dayjs() themselves,
   // so they actually re-render on each poll tick instead of going stale in
-  // an open tab. Typed as `any` here (not Dayjs) so this shared types file
-  // - mirrored by hand on the backend - doesn't have to import a frontend-only
-  // date library.
-  now: any;
-  members: any[];
+  // an open tab.
+  //
+  // Properly typed as Dayjs. An earlier comment here claimed it had to be
+  // `any` because this file is hand-mirrored on the backend and couldn't
+  // import a frontend-only date library - but TeamContextType has no backend
+  // counterpart (only TeamMember / RecurringShift / DayOfWeek do), so the
+  // import costs nothing.
+  now: Dayjs;
+  members: TeamMember[];
   recurringShifts: RecurringShift[];
   loading: boolean;
   // Sets a member's presence to an explicit state (not a toggle - four
@@ -63,7 +69,9 @@ export interface TeamContextType {
   handleMemberAdded: () => void;
   viewerId: string | null;
   setViewer: (id: string) => void;
-  viewerMember: any;
+  // undefined while members are still loading, or if viewerId points at a
+  // member who has since been deleted.
+  viewerMember: TeamMember | undefined;
   viewerTimezone: string;
 }
 

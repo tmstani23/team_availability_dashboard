@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { useTeam } from '../context/TeamContext';
+import { useAuth } from '../context/useAuth';
+import { useTeam } from '../context/useTeam';
 import { shiftMemberId } from '../utils/scheduleTime';
 
 // Dismissible, non-blocking nudge shown when the logged-in member has zero

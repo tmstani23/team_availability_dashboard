@@ -1,8 +1,8 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type { AuthContextType } from '../types';
+import { useState, useEffect, type ReactNode } from 'react';
 import { API_BASE } from '../config';
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Context object + useAuth live in their own module so this file exports only
+// a component, which is what Fast Refresh needs to hot-reload it.
+import { AuthContext } from './useAuth';
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [role, setRole] = useState<'admin' | 'member' | null>(null);
@@ -54,7 +54,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setRole(data.role);
             setTeamMemberId(data.teamMemberId);
             return { success: true };
-        } catch (err) {
+        } catch {
             return { success: false, message: 'Network error - please try again' };
         }
     };
@@ -80,10 +80,4 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             {children}
         </AuthContext.Provider>
     );
-};
-
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (!context) throw new Error('useAuth must be used within an AuthProvider');
-    return context;
 };

@@ -4,7 +4,7 @@ import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { useTeam } from '../context/TeamContext';
+import { useTeam } from '../context/useTeam';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { getCurrentShiftForMember, getScheduleState } from '../utils/scheduleTime';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
@@ -82,7 +82,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
       });
       setIsEditing(false);
       await refreshAllData(); // pulls fresh data rather than patching local state manually
-    } catch (err) {
+    } catch {
       setEditError('Failed to update member');
     }
   };
@@ -107,7 +107,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
       const data = await res.json();
       setBadgeInfo(data);
       setShowBadge(true);
-    } catch (err) {
+    } catch {
       setBadgeError('Failed to load login info');
     }
   };
