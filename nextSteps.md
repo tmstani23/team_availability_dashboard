@@ -3,18 +3,19 @@
 Last updated: 2026-08-07
 
 ## START HERE NEXT SESSION
-Phases 0-3 are committed and browser-verified. Chunk 1 of the 8/3 order (this
-file's split + the sidebar timezone label) is done and tested 8/7 - see
-`docs/decisions.md`.
+Phases 0-3 are committed and browser-verified. So is chunk 1 of the 8/3 order
+(this file's split + the sidebar timezone label) and the DESIGN PASS, both
+tested 8/7 - see `docs/decisions.md`.
 
-THE ROADMAP'S FEATURE WORK IS DONE. What's left is polish and shipping. Two
-chunks remain of the three agreed 8/3:
+THE ROADMAP'S FEATURE WORK IS DONE, and so is the visual system. What's left:
 
-1. DESIGN PASS -> RETIRE viewerId -> FINAL TESTING, in that order and for the
-   reasons under AFTER below.
+1. RETIRE viewerId, then FINAL TESTING. The design pass that used to come
+   first is done, so this is now the head of the queue.
    GOOD FRESH-SESSION BOUNDARY, and the one remaining piece with real
    architectural risk - viewerId currently owns the grid's only timezone
    source, so this is a replacement, not a deletion. Worth a higher model.
+   The design decision it depended on is settled: see
+   `### DECISION: viewer timezone source` below, which REVERSES step 2a.
    This is where the "Simulating Active User" dropdown becomes a static
    identity block showing the LOGGED-IN user's name, clock and timezone
    (step 2d of the plan). Reuse `formatTimezoneLabel` from scheduleTime.ts -
@@ -25,11 +26,9 @@ chunks remain of the three agreed 8/3:
    browser profile. That's the endstate anyway - a picker implying you can
    act as someone else is what auth has forbidden since 7/18 - and it's how
    Phase 1 was QA'd, so the muscle exists.
-   OPEN QUESTION for that step: the identity block falls back to the
-   browser's zone when the member's stored zone is missing. Decide what it
-   should show when the two DISAGREE - a stale stored zone (they moved,
-   nobody updated the record) means the grid silently renders in a zone the
-   viewer isn't actually in.
+   The open question about disagreeing timezones is SETTLED (8/7) - see
+   `### DECISION: viewer timezone source` under (1) below. It reverses step
+   2a, so read it before starting.
 2. DEPLOY to Render + Atlas. Research is in `docs/decisions.md`; possible any
    time since Phase 0. Deliberately AFTER (1), since deploy is when a real
    second person gets involved and the identity block should be honest by
@@ -89,21 +88,20 @@ What remains is below, in order.
 Sequenced that way deliberately - see the plan below. Both were previously
 listed as separate loose items; they're coupled.
 
-Step 1 - design pass (button colors, card polish, the bg-zinc-800-on-
-bg-zinc-800 input issue in AddTeamMemberForm, see KNOWN ISSUES). Do this
-FIRST because it's the last point where moving UI around is cheap, and the
-sidebar is one of the things being touched.
+Step 1 - design pass. DONE 8/7, see `docs/decisions.md`. It grew well past
+"button colors and card polish" into a real visual system (tokens, palette,
+typeface, Button component), which is why it's logged as its own entry.
 
 Step 2 - retire the "Simulating Active User" dropdown. This is not just
 deleting a <select>: viewerId currently drives WHICH TIMEZONE THE WHOLE
 GRID RENDERS IN (TeamContext.viewerTimezone -> ScheduleGrid's conversion).
 Removing the control without replacing that source leaves the grid with no
 timezone at all. The plan:
-  a. Point viewerTimezone at real auth instead - resolve the logged-in
-     member via AuthContext.teamMemberId, use THEIR stored timezone, and
-     fall back to the browser's zone (dayjs.tz.guess()) if that member
-     isn't loaded yet or has no zone set. The fallback matters: the grid
-     must always have a zone to convert into.
+  a. Point viewerTimezone at the BROWSER's zone (dayjs.tz.guess()), falling
+     back to the logged-in member's stored zone and then 'UTC'. NOTE this is
+     the reverse of what this step said until 8/7 - see the DECISION block
+     below for why. The fallback chain matters either way: the grid must
+     always have a zone to convert into.
   b. Delete viewerId / setViewer / viewerMember from TeamContext and
      TeamContextType, and the <select> from TeamStatusSidebar.
   c. Sweep for remaining readers - `viewerTimezone` is used by
@@ -112,7 +110,10 @@ timezone at all. The plan:
      the replacement isn't clean.
   d. REPLACE the dropdown with a small profile block in the same spot: an
      avatar/initials icon, the logged-in member's name, their current local
-     time, and their timezone. Not just a deletion - that corner of the
+     time, and their timezone. Use `tnum` on the clock (see index.css) and
+     the Button/buttonClasses helpers for anything clickable - the design
+     system landed 8/7, so this step should not be inventing any styling.
+     Not just a deletion - that corner of the
      sidebar currently answers "whose clock is this grid in?", and the grid
      stays timezone-converted after the dropdown goes, so the question
      outlives the control. A static identity block answers it honestly
@@ -129,6 +130,76 @@ implies you can act as them, which auth has correctly forbidden since 7/18.
 Step 3 - final testing pass, AFTER both of the above. Doing it earlier
 means testing a UI that's about to change and a timezone source that's
 about to be replaced.
+
+### DECISION: viewer timezone source (8/7, design only - no code yet)
+
+Settles the open question left over from the 8/3 plan: what happens when the
+logged-in member's STORED timezone disagrees with the BROWSER's.
+
+ANSWER: the browser wins for viewing, the stored zone stays the schedule
+identity and is never auto-synced, and the identity block NAMES the
+disagreement instead of hiding or arbitrating it.
+
+THE REFRAME that produced this: "the viewer's timezone" is two different
+fields that got conflated, and when they disagree both are correct about
+different things.
+- STORED zone = schedule identity. It resolves the member's standing 9-5 and
+  it's what every OTHER person's screen uses to decide whether they're on
+  shift. If this followed the browser, flying to Tokyo would silently retime
+  a member's working hours for the whole team - their "9-5" becomes 9-5 Tokyo
+  and colleagues see them on shift in the middle of their night. Travel must
+  not rewrite a schedule.
+- BROWSER zone = the clock on the viewer's wall right now. That's what the
+  grid needs, since converting other people's hours onto the clock you're
+  actually reading is the grid's entire job.
+
+WHY BROWSER WINS FOR VIEWING - the same principle the heartbeat already
+established: evidence beats a stale claim. The OS knows where the machine is;
+the stored zone is something someone typed once, possibly an admin, possibly
+months ago. Phase 1 decided a live heartbeat outranks a stored status for
+exactly this reason, and this is that argument in a different costume.
+
+CONSEQUENCE FOR MeetingPanel, which the original open question missed:
+`viewerTimezone` is also the input to the one place a wall clock becomes an
+instant (`dayjs.tz(date + time, viewerTimezone)`). If someone in Tokyo reads a
+Tokyo-labelled grid and books "2pm," they mean 2pm Tokyo - otherwise the
+meeting lands in a different column from the one they clicked. The grid and
+the booking form MUST share one value, and it has to be the zone the grid is
+visibly labelled with. This makes browser-wins not just preferable but forced.
+
+THE IDENTITY BLOCK shows the browser zone, and when it differs from stored,
+says so and offers the fix:
+    Sarah Chen
+    2:41 PM · Tokyo (this device)
+    Profile says Chicago — update?
+The link goes to the profile page rather than being a one-click sync: changing
+your stored zone changes when teammates see you as working, and that
+consequence should be visible rather than a side effect of clicking something
+convenient.
+
+REJECTED - prompt the viewer to choose (the first instinct, and the trip case
+behind it is real). Three problems. The answer needs somewhere to live, and
+in-memory means re-asking on every reload - the FirstRunHoursGate known issue
+repeating itself - while localStorage or a new field is real persistence
+machinery for a preference set once and forgotten. It's also a modal on a
+dashboard whose stated constraint is reading availability in under two
+seconds. Worst, it frames the disagreement as a CHOICE when it's usually a
+DEFECT: a stale record after a move, an admin's typo at member creation, a
+machine with a misconfigured OS clock. "Use browser this time" fixes nothing,
+so it asks forever.
+
+REJECTED - browser wins silently. Simpler, but a stale stored record then
+never surfaces to the one person who can correct it, and a wrong stored zone
+misreports that member's shift to everyone else indefinitely.
+
+REJECTED - stored wins (the original 2a). Consistent with how every other
+member's hours resolve, but it makes the grid wrong precisely while
+travelling, which is when cross-timezone reading matters most.
+
+IMPLEMENTATION NOTE: compare IANA zone STRINGS, never offsets. Two different
+zones can share an offset, and one zone changes its own offset twice a year -
+an offset comparison would flash a false "disagreement" at every DST
+changeover.
 
 ### 2 — DEPLOY to Render + Atlas
 
@@ -147,10 +218,21 @@ a second real person sees it.
   reload until hours are actually set. Deliberate (non-blocking, not
   "seen once, gone forever"), but revisit if it turns out to be annoying
   in daily use - a persisted flag would be the fix.
-- AddTeamMemberForm inputs use bg-zinc-800 on a bg-zinc-800 card - relies
-  on border alone for separation. Deferred to design pass.
-- Broader design pass (button colors, card polish) - explicitly deferred,
-  not yet started.
+- Meeting carve-outs are distinguished from lunches and on-shift blocks by
+  COLOUR ALONE. Rose-on-sage survives red-green colour blindness, but the
+  accessible answer is a second, non-colour signal (the lunch carve already
+  has its quarter-hour ticks; meetings have nothing). Left out of the 8/7
+  design pass deliberately rather than half-built: it means changing
+  ScheduleCell's slice layering, which produced two subtle bugs in Phase 3
+  and deserves its own decision rather than a drive-by.
+- Text colours are tokenised (`ink` / `ink-muted` / `ink-faint`) but the
+  TYPE SCALE isn't - heading sizes are still per-component `text-2xl` /
+  `text-xl` / `text-lg` picked by feel. Worth a `--text-*` set if a fourth
+  heading size ever shows up.
+- ScheduleGrid still hardcodes its column maths (120px name column, 55px
+  per hour, 2px gap) as inline styles rather than tokens. Left alone on
+  purpose: the overlap row depends on being pixel-aligned with the member
+  rows, and that alignment is the thing most likely to break silently.
 
 ## PRODUCTION DEPLOYMENT CHECKLIST (not started, revisit before going live)
 - syncIndexes() is dev-only by design - before deploying, manually audit

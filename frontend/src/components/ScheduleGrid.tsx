@@ -37,7 +37,7 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
   return (
     <div className="p-4">
       <h2 className="text-2xl font-bold text-white mb-4">Daily Schedule Matrix</h2>
-      <p className="text-xs text-zinc-400">Viewer TZ: {viewerTimezone}</p>
+      <p className="text-xs text-ink-muted">Viewer TZ: {viewerTimezone}</p>
 
       <div className="schedule-grid-container overflow-x-auto max-w-full pb-4">
         {(() => {
@@ -92,7 +92,7 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
               >
                 <div></div>
                 {hours.map(hour => (
-                  <div key={hour} className="text-center font-bold text-xs whitespace-nowrap text-white">
+                  <div key={hour} className="text-center font-bold text-xs whitespace-nowrap text-white tnum">
                     {hour}:00
                   </div>
                 ))}
@@ -115,10 +115,10 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                         someone who just isn't working today. Amber matches the
                         sidebar's unset treatment. */}
                     {resolution.state === 'off' && (
-                      <div className="text-[10px] text-zinc-500 whitespace-nowrap">Off today</div>
+                      <div className="text-[10px] text-ink-faint whitespace-nowrap">Off today</div>
                     )}
                     {resolution.state === 'unset' && (
-                      <div className="text-[10px] text-amber-400/80 whitespace-nowrap">Hours not set</div>
+                      <div className="text-[10px] text-away/80 whitespace-nowrap">Hours not set</div>
                     )}
                   </div>
 
@@ -180,9 +180,13 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
               {selectedRows.length > 0 && (
                 <div
                   className="grid mx-auto pl-8"
-                  style={{ gridTemplateColumns: gridTemplate, gap: gridGap, margin: '10px 0 0', alignItems: 'center', borderTop: '1px solid #3f3f46', paddingTop: '10px' }}
+                  style={{ gridTemplateColumns: gridTemplate, gap: gridGap, margin: '10px 0 0', alignItems: 'center', borderTop: '1px solid var(--color-line)', paddingTop: '10px' }}
                 >
-                  <div className="font-bold pr-2 whitespace-nowrap overflow-hidden text-ellipsis text-violet-300 text-sm">
+                  {/* Sky, matching the row's own fill and the "In a meeting"
+                      pill - this label, the cells beside it and the status
+                      pill are all the same feature, so they're one colour.
+                      Violet is reserved for things you can click. */}
+                  <div className="font-bold pr-2 whitespace-nowrap overflow-hidden text-ellipsis text-booked text-sm">
                     Overlap
                   </div>
 

@@ -13,6 +13,8 @@ import {
   isMeetingInProgress,
 } from '../utils/scheduleTime';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
+import { inputClasses } from '../utils/ui';
+import Button, { buttonClasses } from './Button';
 import { API_BASE } from '../config';
 
 dayjs.extend(utc);
@@ -24,8 +26,7 @@ interface TeamMemberCardProps {
 
 // Shared input styling so edit mode + the password field match
 // AddTeamMemberForm's look instead of drifting apart over time
-const inputClass =
-  'w-full bg-zinc-800 text-white border border-zinc-700 rounded px-3 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
+const inputClass = inputClasses('sm', 'w-full');
 
 const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   const { setStatus, deleteMember, refreshAllData, recurringShifts, meetings, now } = useTeam();
@@ -188,16 +189,16 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   };
 
   return (
-    <div className="bg-zinc-800 border border-zinc-700/60 rounded-xl p-4 shadow-lg">
+    <div className="bg-card border border-line rounded-xl p-4 shadow-lg">
       {isEditing ? (
         // Edit mode - profile fields only (name/timezone/job role), not
         // login credentials - those live in the badge panel below instead
         <div className="space-y-3">
           <h4 className="text-lg font-semibold text-white">Editing {member.name}</h4>
-          {editError && <p className="text-red-400 text-sm">{editError}</p>}
+          {editError && <p className="text-dnd text-sm">{editError}</p>}
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Name</label>
+            <label className="block text-sm text-ink-muted mb-1">Name</label>
             <input
               className={inputClass}
               value={editData.name}
@@ -206,7 +207,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Timezone</label>
+            <label className="block text-sm text-ink-muted mb-1">Timezone</label>
             <select
               className={inputClass}
               value={editData.timezone}
@@ -222,7 +223,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Job Role</label>
+            <label className="block text-sm text-ink-muted mb-1">Job Role</label>
             <input
               className={inputClass}
               value={editData.role}
@@ -231,31 +232,31 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
           </div>
 
           <div className="flex gap-2 pt-1">
-            <button
+            <Button
               onClick={handleSaveEdit}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+              variant="primary" size="md"
             >
               Save Changes
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setIsEditing(false)}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+              variant="secondary" size="md"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div>
           <h3 className="text-lg font-semibold text-white">{member.name}</h3>
-          <div className="text-sm text-zinc-300 space-y-0.5 mt-1">
+          <div className="text-sm text-ink space-y-0.5 mt-1">
             {/* "Job Role" (member.role, e.g. "Engineer") is a different field
                 from "Access Level" (badgeInfo.role, admin/member) below -
                 same word, two unrelated concepts, labeled distinctly to avoid confusion */}
-            <p><span className="text-zinc-400">Job Role:</span> {member.role}</p>
-            <p><span className="text-zinc-400">Timezone:</span> {member.timezone}</p>
+            <p><span className="text-ink-muted">Job Role:</span> {member.role}</p>
+            <p><span className="text-ink-muted">Timezone:</span> {member.timezone}</p>
             <p>
-              <span className="text-zinc-400">Status:</span>{' '}
+              <span className="text-ink-muted">Status:</span>{' '}
               {/* Derived, not raw - matches what the sidebar shows this member
                   as. resolveDisplayStatus also covers the missing-status case
                   (pre-migration records) by falling back to 'away'. */}
@@ -264,13 +265,17 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
                   saying "off shift" - three different things can derive a
                   status now, and only one of them is the schedule. */}
               {displayStatus !== member.status && !!member.status && (
-                <span className="text-zinc-500">
+                <span className="text-ink-faint">
                   {' '}({displayStatus === 'meeting' ? 'in a meeting' : displayStatus === 'break' ? 'at lunch' : 'off shift'}
                   {' '}— set {STATUS_META[member.status].label})
                 </span>
               )}
             </p>
-            <p><span className="text-zinc-400">Current Local Time:</span> {dayjs().tz(member.timezone).format('hh:mm A')}</p>
+            {/* `now` from context rather than a fresh dayjs() here, so this
+                ticks with the poll instead of freezing at first render - the
+                same fix the sidebar clock got. tnum keeps the digits
+                fixed-width so the line doesn't shuffle as the minute rolls. */}
+            <p className="tnum"><span className="text-ink-muted">Current Local Time:</span> {now.tz(member.timezone).format('hh:mm A')}</p>
           </div>
 
           <div className="flex flex-wrap gap-2 mt-3">
@@ -282,73 +287,73 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
               <button
                 key={s}
                 onClick={() => setStatus(member._id, s)}
-                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                className={`px-3 py-1.5 rounded-md text-sm font-medium border transition-colors ${
                   member.status === s
                     ? STATUS_META[s].pill
-                    : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
+                    : 'bg-line text-ink border-transparent hover:bg-line-strong'
                 }`}
               >
                 {STATUS_META[s].short}
               </button>
             ))}
-            <button
+            <Button
               onClick={() => setIsEditing(true)}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+              variant="secondary" size="md"
             >
               Edit
-            </button>
+            </Button>
             {/* Admin override of this member's standing hours - same
                 HoursEditor component as /profile/hours, just targeting
                 their :id instead of the admin's own */}
             <Link
               to={`/members/${member._id}/hours`}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+              className={buttonClasses('secondary', 'md')}
             >
               Edit Hours
             </Link>
-            <button
+            <Button
               onClick={handleViewBadge}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+              variant="secondary" size="md"
             >
               {showBadge ? 'Hide Login Info' : 'View Login Info'}
-            </button>
+            </Button>
             {/* Centralized delete confirmation logic lives in TeamContext */}
-            <button
+            <Button
               onClick={() => deleteMember(member._id)}
-              className="px-3 py-1.5 rounded text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors"
+              variant="danger" size="md"
             >
               Delete
-            </button>
+            </Button>
           </div>
 
-          {badgeError && <p className="text-red-400 text-sm mt-2">{badgeError}</p>}
+          {badgeError && <p className="text-dnd text-sm mt-2">{badgeError}</p>}
 
           {/* Login-info panel: email/role display + the two admin actions
               (role toggle, password reset) that operate on the UserBadge */}
           {showBadge && badgeInfo && (
-            <div className="mt-3 p-3 bg-zinc-900 border border-zinc-700 rounded-lg space-y-3">
-              <div className="text-sm text-zinc-300 space-y-0.5">
-                <p><span className="text-zinc-400">Email:</span> {badgeInfo.email}</p>
-                <p><span className="text-zinc-400">Access Level:</span> {badgeInfo.role}</p>
+            <div className="mt-3 p-3 bg-inset border border-line rounded-md space-y-3">
+              <div className="text-sm text-ink space-y-0.5">
+                <p><span className="text-ink-muted">Email:</span> {badgeInfo.email}</p>
+                <p><span className="text-ink-muted">Access Level:</span> {badgeInfo.role}</p>
               </div>
 
               <div>
-                <button
+                <Button
                   onClick={handleRoleToggle}
                   disabled={roleUpdating}
-                  className="px-3 py-1.5 rounded text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                  variant="primary" size="md"
                 >
                   {roleUpdating
                     ? 'Updating...'
                     : badgeInfo.role === 'admin'
                     ? 'Demote to Member'
                     : 'Promote to Admin'}
-                </button>
-                {roleMsg && <p className="text-red-400 text-sm mt-1">{roleMsg}</p>}
+                </Button>
+                {roleMsg && <p className="text-dnd text-sm mt-1">{roleMsg}</p>}
               </div>
 
               <form onSubmit={handlePasswordReset} className="space-y-2">
-                <label className="block text-sm text-zinc-400">Reset Password</label>
+                <label className="block text-sm text-ink-muted">Reset Password</label>
                 <div className="flex gap-2">
                   <input
                     type="password"
@@ -357,17 +362,17 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
                   />
-                  <button
+                  <Button
                     type="submit"
-                    className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors whitespace-nowrap"
+                    variant="secondary" size="md" className="whitespace-nowrap"
                   >
                     Reset
-                  </button>
+                  </Button>
                 </div>
                 {/* Green on success, red on any validation/server error - same
                     element re-used for both so the message doesn't jump around */}
                 {passwordMsg && (
-                  <p className={`text-sm ${passwordError ? 'text-red-400' : 'text-green-400'}`}>
+                  <p className={`text-sm ${passwordError ? 'text-dnd' : 'text-ok'}`}>
                     {passwordMsg}
                   </p>
                 )}

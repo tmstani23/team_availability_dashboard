@@ -8,21 +8,29 @@ import type { ScheduleState } from './scheduleTime';
 // label = full text for the status pill; short = compact form for the small
 // picker buttons where "Do Not Disturb" would wrap.
 export const STATUS_META: Record<TeamMemberStatus, { label: string; short: string; pill: string }> = {
-  active:  { label: 'Active',         short: 'Active',  pill: 'bg-green-500/15 text-green-400 border-green-500' },
-  away:    { label: 'Away',           short: 'Away',    pill: 'bg-yellow-500/15 text-yellow-400 border-yellow-500' },
-  dnd:     { label: 'Do Not Disturb', short: 'DND',     pill: 'bg-red-500/15 text-red-400 border-red-500' },
-  offline: { label: 'Offline',        short: 'Offline', pill: 'bg-zinc-500/15 text-zinc-400 border-zinc-500' },
+  // active reuses the SHIFT colour (--color-ok is the same value as
+  // --color-shift). The pill and the on-shift block in the grid describe one
+  // fact, and they were previously two different greens.
+  active:  { label: 'Active',         short: 'Active',  pill: 'bg-ok/15 text-ok border-ok' },
+  away:    { label: 'Away',           short: 'Away',    pill: 'bg-away/15 text-away border-away' },
+  // The one status that keeps a conventional colour over a palette-native one.
+  // A "do not disturb" that blends into the surface isn't doing its job.
+  dnd:     { label: 'Do Not Disturb', short: 'DND',     pill: 'bg-dnd/15 text-dnd border-dnd' },
+  offline: { label: 'Offline',        short: 'Offline', pill: 'bg-idlepill/15 text-idlepill border-idlepill' },
   // Derived from the standing lunch window, never stored. Amber rather than
   // reusing away's yellow so "at lunch, back shortly" and "stepped out,
   // who knows" don't read as the same state at a glance - the grid already
   // draws the lunch explicitly, and a sidebar that said only "Away" would be
   // telling a vaguer story about the same fact.
-  break:   { label: 'At lunch',       short: 'Lunch',   pill: 'bg-amber-500/15 text-amber-400 border-amber-500' },
-  // Derived from a booked meeting overlapping right now, never stored. Violet
-  // deliberately matches the overlap row's color: that row is where meetings
+  break:   { label: 'At lunch',       short: 'Lunch',   pill: 'bg-atbreak/15 text-atbreak border-atbreak' },
+  // Derived from a booked meeting overlapping right now, never stored. Rose
+  // deliberately matches the overlap row's colour: that row is where meetings
   // get found and booked, so the pill and the thing that produced it read as
-  // the same feature rather than two unrelated purple-ish states.
-  meeting: { label: 'In a meeting',   short: 'Meeting', pill: 'bg-violet-500/15 text-violet-300 border-violet-500' },
+  // the same feature rather than two unrelated states.
+  // Was violet until the 8/7 design pass, which reserved violet for things you
+  // can interact with - the overlap row and the primary button had ended up
+  // the same hex.
+  meeting: { label: 'In a meeting',   short: 'Meeting', pill: 'bg-booked/15 text-booked border-booked' },
 };
 
 // The states a user can pick by hand, in the order the picker shows them.

@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <!-- Fonts are linked here rather than @import-ed in index.css so the
+         browser can start fetching them while the CSS bundle is still
+         downloading; an @import inside a stylesheet can't be discovered until
+         that stylesheet has parsed. preconnect shaves the TLS handshake off
+         the critical path for the same reason.
+         Space Grotesk = headings only. Inter = everything else, including the
+         grid, where its narrower forms fit far more comfortably. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Team Availability Dashboard</title>
   </head>
   <body>
     <div id="root"></div>

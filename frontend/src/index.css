@@ -1,15 +1,149 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   DESIGN TOKENS
+
+   Tailwind v4 keeps theme config in CSS, not in tailwind.config.js. That file
+   is a v3-style config and v4 ignores it entirely unless a stylesheet pulls it
+   in with an `@config` directive - this one doesn't, so it has never had any
+   effect and should be deleted (Claude's sandbox can't remove files; do it by
+   hand). Everything the project themes lives here instead.
+
+   Each name below declares a JOB, not a colour. `bg-card` says "this is a
+   card"; `bg-zinc-800` says "this is the colour zinc-800", which is how the
+   palette drifted in the first place - three different card radii and two
+   containers painted the same colour as their own parent.
+
+   THE ONE RULE THIS ENCODES: chrome and data never share a hue.
+     - `brand` means "you can interact with this". Buttons, links, focus rings,
+       selection, native control accents. Nothing else.
+     - `shift` / `booked` / `carve` mean what's on the calendar. They appear in
+       the grid and in the status pill that describes the same fact, and never
+       on a control.
+   Mixing them is what made the overlap row and the primary button the exact
+   same pixel value before the 8/7 pass.
+   --------------------------------------------------------------------------- */
+@theme {
+  /* TYPE. Space Grotesk carries the headings, where the app previously had no
+     chosen typeface at all and was falling through to the browser default
+     (Segoe UI on Windows). It's deliberately NOT used for body or grid text:
+     its wider, squarer forms cost horizontal room, and the schedule grid is
+     the most space-constrained surface here. */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', var(--font-sans);
+
+  /* ELEVATION - four steps, darkest to lightest, slate-tinted rather than
+     neutral grey. A container must never use its parent's step; if it needs to
+     sit flush, it wants a border, not the same fill. Both original bugs
+     (MeetingPanel on the main column, AddTeamMemberForm's inputs on their card)
+     were that rule going unstated. */
+  --color-canvas: #0d1014;
+  --color-surface: #151a20;
+  --color-card: #1d242c;
+  --color-inset: #090b0e;
+
+  /* LINES. `line` is the default hairline, `line-strong` is hover/emphasis,
+     `line-subtle` separates regions inside a single card. */
+  --color-line: #2c3540;
+  --color-line-strong: #3d4956;
+  --color-line-subtle: #1d242c;
+
+  /* TEXT. Slate-tinted to match the surfaces - plain zinc greys read faintly
+     brown against a blue-grey base, which is the kind of mismatch you notice
+     without being able to name. */
+  --color-ink: #e6eaf0;
+  --color-ink-muted: #9aa4b2;
+  --color-ink-faint: #6b7684;
+
+  /* BRAND / INTERACTION. Pushed toward violet rather than sitting on straight
+     periwinkle: against blue-grey neutrals a bluer accent reads as "the
+     background, but brighter" instead of as a separate, clickable thing. The
+     accent has to be tuned to the base it sits on, not chosen in isolation. */
+  --color-brand: #7c74f2;
+  --color-brand-hover: #948df5;
+  --color-brand-active: #6259e8;
+
+  /* SCHEDULE DATA. Referenced by name from ScheduleCell's runtime gradients
+     (CSS gradients accept var(), so these are the single source rather than
+     hexes mirrored into a TS file).
+
+     Sage for on-shift, rose for booked. Rose was picked against SAGE rather
+     than against the chrome: meetings are drawn INSIDE on-shift blocks, so
+     booked-on-shift is the pair a reader actually has to separate. Warm rose
+     against cool sage separates on hue, value and temperature at once, and
+     survives red-green colour blindness where two greens or a green and a cyan
+     would not. */
+  --color-shift: #4f9e7c;
+  --color-idle: #1d242c;
+  --color-carve: #2c3540;
+  --color-booked: #c4658a;
+  --color-booked-strong: #a94f73;
+
+  /* STATUS. `ok` is deliberately the same value as `shift`: the Active pill
+     and the on-shift block in the grid are two renderings of one fact, and
+     they used to be two different greens.
+     `dnd` stays red - it's the one status where the convention is worth more
+     than palette cohesion, and a warning that blends in isn't a warning. It's
+     pulled slightly orange-ward to hold apart from `booked` rose, which is the
+     nearest hue and the only pill it can appear beside. */
+  --color-ok: #4f9e7c;
+  --color-away: #d9a441;
+  --color-dnd: #e15b4c;
+  --color-atbreak: #c97b3e;
+  --color-idlepill: #6b7684;
+}
+
 /* App is always dark-themed (no light mode toggle exists), so this hints
    the browser to render native form controls (select dropdowns, scrollbars,
    date pickers) with dark chrome instead of the default light one clashing
    with your Tailwind dark backgrounds */
 :root {
   color-scheme: dark;
+
+  /* Native controls - checkboxes, radios, range thumbs - paint themselves with
+     the OS accent colour, which is why the Off/Lunch checkboxes in HoursEditor
+     rendered bright Windows blue while everything around them was violet.
+     Setting it once here means every native control inherits the palette and
+     can't drift; the alternative was an `accent-violet-500` class remembered
+     per checkbox, which is exactly what had already been forgotten in three
+     places. */
+  accent-color: var(--color-brand);
 }
 
 /* Removes the browser's default 8px body margin - without this there's a
    visible gap around the whole app before any layout even starts */
 body {
   margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+/* Headings take the display face automatically, so no component has to
+   remember a font class. Negative tracking is doing as much work as the
+   typeface itself - Space Grotesk set at default spacing reads loose and
+   airy at these sizes. */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* Clocks and hour labels. Proportional digits make `1` narrower than `0`, so
+   a live-ticking clock shifts sideways as the minute rolls over - on a roster
+   of them that reads as the layout twitching. Tabular figures are fixed-width
+   and hold still. Applied by class rather than globally because tabular digits
+   are slightly wider and only earn that in numeric columns. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The native date/time picker's calendar and clock glyphs are a fixed dark
+   grey that disappears against our inputs. There's no standard property for
+   them, so this inverts the glyph to near-white; it's a vendor-prefixed
+   pseudo-element, hence the isolated rule. Chromium only - Firefox draws its
+   own picker button and ignores this harmlessly. */
+input[type='date']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
 }

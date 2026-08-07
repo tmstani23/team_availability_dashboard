@@ -6,12 +6,12 @@ const AdminLayout = () => {
   const tabClass = ({ isActive }: { isActive: boolean }) =>
     `px-4 py-2 rounded-t-lg font-medium transition-colors ${
       isActive
-        ? 'bg-zinc-800 text-white'
-        : 'text-zinc-400 hover:text-white'
+        ? 'bg-card text-white'
+        : 'text-ink-muted hover:text-white'
     }`;
 
   return (
-    <div className="min-h-screen bg-[#0f1112] text-white">
+    <div className="min-h-screen bg-canvas text-white">
       {/* Tabs built here (they're admin-specific) and handed to AppHeader's
           generic tabs slot - AppHeader itself doesn't know about routes */}
       <AppHeader

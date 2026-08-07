@@ -9,6 +9,7 @@ import {
   formatTimezoneLabel,
 } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
+import { inputClasses } from '../utils/ui';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
@@ -54,23 +55,23 @@ const TeamStatusSidebar = () => {
     // h-full stretches it to match ScheduleGrid's height (flex row default
     // align-items: stretch). Back to sole occupant of this column now that
     // TeamHoursPanel has moved to the main column above ScheduleGrid.
-    <div className="w-full h-full bg-zinc-900 border-l border-zinc-700 text-white p-6 box-border overflow-y-auto">
+    <div className="w-full h-full bg-surface border-l border-line text-white p-6 box-border overflow-y-auto">
       {/* Viewer selector - lets you pick which team member's perspective
           you're viewing the dashboard as (see viewerId in TeamContext) */}
-      <div className="mb-6 border-b border-zinc-700 pb-4">
-        <label className="block text-xs text-zinc-500 mb-2">
+      <div className="mb-6 border-b border-line pb-4">
+        <label className="block text-xs text-ink-faint mb-2">
           Simulating Active User:
         </label>
         <select
           value={viewerId || ''}
           onChange={(e) => setViewer(e.target.value)}
-          className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-2 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+          className={inputClasses('sm', 'w-full')}
         >
           {members.map(m => (
             <option key={m._id} value={m._id}>{m.name}</option>
           ))}
         </select>
-        <div className="text-xs text-zinc-500 mt-2">
+        <div className="text-xs text-ink-faint mt-2 tnum">
           Your local time: {getLocalTime(viewerTimezone)}
         </div>
       </div>
@@ -126,39 +127,46 @@ const TeamStatusSidebar = () => {
           return (
             <div
               key={member._id}
-              className={`bg-zinc-800 p-3 rounded-md border ${
-                isSelf ? 'border-blue-500' : 'border-zinc-700/60'
+              className={`bg-card p-3 rounded-md border ${
+                isSelf ? 'border-brand' : 'border-line'
               }`}
             >
-              {/* Top row: identity info on the left, status pill on the right */}
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-sm">
+              {/* Top row: identity info on the left, status pill on the right.
+                  min-w-0 on the left column is load-bearing. A flex child's
+                  default min-width is auto, meaning it refuses to shrink below
+                  its content - so with a long name AND a long pill ("In a
+                  meeting"), the pill was the thing that gave way and wrapped
+                  onto two lines. min-w-0 lets the name truncate instead, which
+                  is the right one to sacrifice: a clipped name is still
+                  recognisable, a wrapped pill just looks broken. */}
+              <div className="flex justify-between items-start gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold text-sm truncate">
                     {member.name}{' '}
-                    {isSelf && <span className="text-blue-400 text-xs">(You)</span>}
+                    {isSelf && <span className="text-brand-hover text-xs">(You)</span>}
                   </div>
-                  <div className="text-xs text-zinc-400">{member.role}</div>
-                  <div className="text-xs text-zinc-500">🕒 {getLocalTime(member.timezone)}</div>
+                  <div className="text-xs text-ink-muted truncate">{member.role}</div>
+                  <div className="text-xs text-ink-faint tnum">🕒 {getLocalTime(member.timezone)}</div>
                   {/* Standing hours for today in the member's own local time.
                       'unset' shows nothing here - the "set your hours" prompt
                       for that case lands with the first-run gate (nextSteps). */}
                   {resolution.state === 'working' && (
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-ink-faint tnum">
                       Working {resolution.startTime}–{resolution.endTime}
                     </div>
                   )}
                   {resolution.state === 'off' && (
-                    <div className="text-xs text-zinc-500">Off today</div>
+                    <div className="text-xs text-ink-faint">Off today</div>
                   )}
                   {/* Naming the meeting turns "In a meeting" from a state into
                       an answer - the next question after seeing that pill is
                       always "which one, and how long." Shown regardless of
                       whether the pill actually says 'meeting': someone off
                       shift still reads as offline (see resolveDisplayStatus),
-                      and this line is what explains the violet block sitting
+                      and this line is what explains the sky block sitting
                       on their grid row. */}
                   {currentMeeting && (
-                    <div className="text-xs text-violet-300">
+                    <div className="text-xs text-booked">
                       In: {currentMeeting.title}
                     </div>
                   )}
@@ -173,12 +181,12 @@ const TeamStatusSidebar = () => {
                     isSelf ? (
                       <Link
                         to="/profile/hours"
-                        className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium border bg-amber-500/15 text-amber-400 border-amber-500 hover:bg-amber-500/25 transition-colors"
+                        className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium border bg-away/15 text-away border-away hover:bg-away/25 transition-colors"
                       >
                         Hours not set — set now
                       </Link>
                     ) : (
-                      <div className="text-xs text-amber-400/80">Hours not set</div>
+                      <div className="text-xs text-away/80">Hours not set</div>
                     )
                   )}
                 </div>
@@ -187,7 +195,7 @@ const TeamStatusSidebar = () => {
                     drift apart. Fallback to 'offline' guards against a member
                     whose status somehow isn't set (e.g. pre-migration data). */}
                 <span
-                  className={`text-xs px-2 py-1 rounded-full font-medium border ${
+                  className={`text-xs px-2 py-1 rounded-full font-medium border whitespace-nowrap shrink-0 ${
                     STATUS_META[displayStatus].pill
                   }`}
                 >
@@ -211,10 +219,10 @@ const TeamStatusSidebar = () => {
                         // derived displayStatus - this row is "what did I
                         // choose," and showing the derived value here would
                         // make their actual choice invisible.
-                        className={`py-1 rounded text-xs font-medium border transition-colors ${
+                        className={`py-1 rounded-md text-xs font-medium border transition-colors ${
                           member.status === s
                             ? STATUS_META[s].pill
-                            : 'bg-zinc-700 text-zinc-300 border-transparent hover:bg-zinc-600'
+                            : 'bg-line text-ink border-transparent hover:bg-line-strong'
                         }`}
                       >
                         {STATUS_META[s].short}
@@ -228,7 +236,7 @@ const TeamStatusSidebar = () => {
                       that they're "outside your hours" would be a confidently
                       wrong explanation of a correct display. */}
                   {isOverridden && (
-                    <div className="mt-1.5 text-[11px] text-zinc-500 leading-snug">
+                    <div className="mt-1.5 text-[11px] text-ink-faint leading-snug">
                       {displayStatus === 'meeting'
                         ? `In a meeting — showing that instead. Your ${STATUS_META[member.status].label} setting applies once it ends.`
                         : displayStatus === 'break'

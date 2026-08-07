@@ -18,8 +18,8 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
     // Now sits above ScheduleGrid in the wide main column (moved out of the
     // 280px sidebar), so chips laid out with flex-wrap make better use of
     // the width than the original vertical list did.
-    <div className="w-full bg-zinc-900 border-b border-zinc-700 text-white p-4 box-border mb-2">
-      <h3 className="text-sm font-semibold mb-3 text-zinc-300">Compare Availability</h3>
+    <div className="w-full bg-surface border-b border-line text-white p-4 box-border mb-2">
+      <h3 className="text-sm font-semibold mb-3 text-ink">Compare Availability</h3>
 
       <div className="flex flex-wrap gap-2">
         {members.map(member => {
@@ -34,18 +34,18 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
               key={member._id}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer text-sm transition-colors ${
                 isChecked
-                  ? 'bg-violet-600/20 border-violet-500 text-white'
-                  : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-600'
+                  ? 'bg-brand/20 border-brand text-white'
+                  : 'bg-card border-line text-ink hover:border-line-strong'
               }`}
             >
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={() => onToggle(member._id)}
-                className="accent-violet-500 shrink-0"
+                className="accent-brand shrink-0"
               />
               <span>{member.name}</span>
-              <span className="text-xs text-zinc-500 whitespace-nowrap">
+              <span className="text-xs text-ink-faint whitespace-nowrap">
                 {/* off / unset have no hourRange, so distinguish them here
                     rather than showing a generic "No shift" for both. */}
                 {resolution.state === 'off'

@@ -5,6 +5,8 @@ import { useTeam } from '../context/useTeam';
 import type { DayOfWeek, RecurringShift } from '../types';
 import { homePathForRole } from '../utils/routes';
 import { API_BASE } from '../config';
+import Button from './Button';
+import { inputClasses } from '../utils/ui';
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -372,7 +374,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
   // Covers both "auth hasn't resolved teamMemberId yet" (self) and "no :id
   // in the URL" (admin, shouldn't happen given the route, but cheap to guard)
   if (!targetId) return null;
-  if (loading) return <div className="p-6 text-zinc-400">Loading hours...</div>;
+  if (loading) return <div className="p-6 text-ink-muted">Loading hours...</div>;
 
   // Deliberately renders INSTEAD of the form - see loadFailed above. Showing a
   // prefilled default week we couldn't verify invites overwriting real data.
@@ -381,28 +383,28 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       <div className="p-6 max-w-2xl mx-auto">
         <Link
           to={backTo}
-          className="inline-block mb-4 text-sm text-zinc-400 hover:text-white transition-colors"
+          className="inline-block mb-4 text-sm text-ink-muted hover:text-white transition-colors"
         >
           ← Back
         </Link>
         <h2 className="text-2xl font-semibold text-white mb-2">
           {mode === 'self' ? 'My Hours' : `Editing Hours for ${targetMember?.name ?? '...'}`}
         </h2>
-        <p className="text-red-400 text-sm mb-1">Couldn't load these hours.</p>
-        <p className="text-zinc-400 text-sm mb-4">
+        <p className="text-dnd text-sm mb-1">Couldn't load these hours.</p>
+        <p className="text-ink-muted text-sm mb-4">
           Nothing has been changed. The form is hidden on purpose - editing a
           week we couldn't read risks saving over the real one.
         </p>
-        <button
+        <Button
           onClick={() => {
             setLoadFailed(false);
             setLoadedFor(null);
             setReloadToken(token => token + 1);
           }}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+          variant="primary" size="md"
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -411,7 +413,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
     <div className="p-6 max-w-2xl mx-auto">
       <Link
         to={backTo}
-        className="inline-block mb-4 text-sm text-zinc-400 hover:text-white transition-colors"
+        className="inline-block mb-4 text-sm text-ink-muted hover:text-white transition-colors"
       >
         ← Back
       </Link>
@@ -419,7 +421,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       <h2 className="text-2xl font-semibold text-white mb-1">
         {mode === 'self' ? 'My Hours' : `Editing Hours for ${targetMember?.name ?? '...'}`}
       </h2>
-      <p className="text-sm text-zinc-400 mb-3">
+      <p className="text-sm text-ink-muted mb-3">
         Standing weekly hours - these repeat every week until changed.
       </p>
 
@@ -429,22 +431,22 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
           member is setting HER 9am, not theirs. Self mode skips it - "times
           are in your local time" on your own page is noise. */}
       {mode === 'admin' && targetNow && targetMember && (
-        <div className="text-sm mb-6 bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-3">
-          <div className="text-zinc-300">
+        <div className="text-sm mb-6 bg-card border border-line rounded-xl p-3">
+          <div className="text-ink">
             Times below are in <span className="text-white font-medium">{targetMember.name}'s</span>{' '}
             local time
-            <span className="text-zinc-500"> ({targetMember.timezone})</span>.
+            <span className="text-ink-faint"> ({targetMember.timezone})</span>.
           </div>
-          <div className="text-zinc-400 mt-1">
+          <div className="text-ink-muted mt-1">
             Their clock: <span className="text-white">{targetNow.format('dddd, h:mm A')}</span>
-            <span className="text-zinc-600"> · </span>
+            <span className="text-ink-faint"> · </span>
             Yours: <span className="text-white">{viewerNow.format('dddd, h:mm A')}</span>
-            <span className="text-zinc-500"> ({formatOffset(targetNow, viewerNow)})</span>
+            <span className="text-ink-faint"> ({formatOffset(targetNow, viewerNow)})</span>
           </div>
           {/* Only surfaced when the two clocks actually disagree about the
               date, which is the case that caused a real mis-edit (7/31 QA). */}
           {crossesDateBoundary && (
-            <div className="text-amber-400/90 mt-1.5">
+            <div className="text-away/90 mt-1.5">
               Heads up: it's already {targetNow.format('dddd')} for them, but{' '}
               {viewerNow.format('dddd')} for you.
             </div>
@@ -452,8 +454,8 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         </div>
       )}
 
-      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-      {savedMsg && <p className="text-green-400 text-sm mb-4">{savedMsg}</p>}
+      {error && <p className="text-dnd text-sm mb-4">{error}</p>}
+      {savedMsg && <p className="text-ok text-sm mb-4">{savedMsg}</p>}
 
       <div className="space-y-3">
         {DAYS.map(day => {
@@ -463,23 +465,23 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
           return (
             <div
               key={day}
-              className={`rounded-lg p-3 border ${
+              className={`rounded-md p-3 border ${
                 isTargetToday
-                  ? 'bg-zinc-800 border-violet-500/70'
-                  : 'bg-zinc-800 border-zinc-700/60'
+                  ? 'bg-card border-brand/70'
+                  : 'bg-card border-line'
               }`}
             >
               <div className="flex items-center gap-4">
                 <div className="w-28 text-white font-medium text-sm">
                   {DAY_LABELS[day]}
                   {isTargetToday && (
-                    <div className="text-[10px] font-normal text-violet-300 whitespace-nowrap">
+                    <div className="text-[10px] font-normal text-brand-hover whitespace-nowrap">
                       {mode === 'admin' ? 'today for them' : 'today'}
                     </div>
                   )}
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-zinc-300">
+                <label className="flex items-center gap-2 text-sm text-ink">
                   <input
                     type="checkbox"
                     checked={entry.isOff}
@@ -490,15 +492,15 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
 
                 <input
                   type="time"
-                  className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                  className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
                   value={entry.startTime}
                   disabled={entry.isOff}
                   onChange={e => updateDay(day, { startTime: e.target.value })}
                 />
-                <span className="text-zinc-500">-</span>
+                <span className="text-ink-faint">-</span>
                 <input
                   type="time"
-                  className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                  className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
                   value={entry.endTime}
                   disabled={entry.isOff}
                   onChange={e => updateDay(day, { endTime: e.target.value })}
@@ -510,10 +512,10 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   incoherent, and the API rejects it, so offering the control
                   would be offering a dead end. */}
               {!entry.isOff && (
-                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-zinc-700/40">
+                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-line/40">
                   <div className="w-28" />
 
-                  <label className="flex items-center gap-2 text-sm text-zinc-400">
+                  <label className="flex items-center gap-2 text-sm text-ink-muted">
                     <input
                       type="checkbox"
                       checked={entry.hasBreak}
@@ -525,16 +527,16 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   <input
                     type="time"
                     step={900}
-                    className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                    className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
                     value={entry.breakStart}
                     disabled={!entry.hasBreak}
                     onChange={e => updateDay(day, { breakStart: e.target.value })}
                   />
-                  <span className="text-zinc-500">-</span>
+                  <span className="text-ink-faint">-</span>
                   <input
                     type="time"
                     step={900}
-                    className="bg-zinc-900 text-white border border-zinc-700 rounded px-2 py-1 text-sm disabled:opacity-40"
+                    className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
                     value={entry.breakEnd}
                     disabled={!entry.hasBreak}
                     onChange={e => updateDay(day, { breakEnd: e.target.value })}
@@ -546,13 +548,13 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
         })}
       </div>
 
-      <button
+      <Button
         onClick={handleSave}
         disabled={saving}
-        className="mt-6 px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white transition-colors"
+        variant="primary" size="md" className="mt-6"
       >
         {saving ? 'Saving...' : 'Save Week'}
-      </button>
+      </Button>
     </div>
   );
 };

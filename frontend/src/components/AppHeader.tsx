@@ -2,6 +2,7 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import type { ReactNode } from 'react';
+import Button, { buttonClasses } from './Button';
 
 interface AppHeaderProps {
   // Optional nav tabs slot - AdminLayout passes its Schedule/Manage NavLinks
@@ -30,23 +31,20 @@ const AppHeader = ({ tabs }: AppHeaderProps) => {
               the way Schedule/Manage are */}
           <Link
             to="/profile/hours"
-            className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
+            className={buttonClasses('secondary', 'md')}
           >
             My Hours
           </Link>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 rounded text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
-          >
+          <Button onClick={handleLogout} size="md">
             Logout
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Only rendered when a route passes tabs in - keeps the tab bar out
           of /dashboard, which has no sub-navigation */}
       {tabs && (
-        <nav className="flex gap-2 border-b border-zinc-700 mb-4">
+        <nav className="flex gap-2 border-b border-line mb-4">
           {tabs}
         </nav>
       )}

@@ -19,8 +19,8 @@ const ScheduleView = () => {
   };
 
   return (
-    <div className="flex w-full min-h-screen box-border bg-[#0f1112] text-white">
-      <div className="flex-1 min-w-0 bg-zinc-900 text-white p-4">
+    <div className="flex w-full min-h-screen box-border bg-canvas text-white">
+      <div className="flex-1 min-w-0 bg-surface text-white p-4">
         <TeamHoursPanel selectedIds={selectedIds} onToggle={toggleSelected} />
         {/* Sits between the finder and the grid on purpose: find the overlap
             above, book it here, see it drawn below. That sequence is the

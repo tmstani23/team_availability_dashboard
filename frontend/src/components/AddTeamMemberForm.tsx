@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useTeam } from '../context/useTeam';
 import { API_BASE } from '../config';
+import Button from './Button';
+import { inputClasses } from '../utils/ui';
 
 const AddTeamMemberForm = () => {
   // Single state object for all fields (controlled inputs) rather than
@@ -71,16 +73,16 @@ const AddTeamMemberForm = () => {
   };
 
   return (
-    <div className="bg-zinc-800 border border-zinc-700/60 p-6 rounded-xl shadow-xl max-w-md mx-auto">
+    <div className="bg-card border border-line p-6 rounded-xl shadow-xl max-w-md mx-auto">
       <form onSubmit={handleSubmit} className="space-y-4">
         <h3 className="text-xl font-semibold text-white">Add New Team Member</h3>
 
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-dnd text-sm">{error}</p>}
 
         <div>
-          <label className="block text-sm text-zinc-400 mb-1">Name</label>
+          <label className="block text-sm text-ink-muted mb-1">Name</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            className={inputClasses("md", "w-full")}
             placeholder="e.g. Jane Smith"
             value={formData.name}
             onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -89,9 +91,9 @@ const AddTeamMemberForm = () => {
         </div>
 
         <div>
-          <label className="block text-sm text-zinc-400 mb-1">Email</label>
+          <label className="block text-sm text-ink-muted mb-1">Email</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            className={inputClasses("md", "w-full")}
             type="email"
             placeholder="jane@company.com"
             value={formData.email}
@@ -101,9 +103,9 @@ const AddTeamMemberForm = () => {
         </div>
 
         <div>
-          <label className="block text-sm text-zinc-400 mb-1">Password</label>
+          <label className="block text-sm text-ink-muted mb-1">Password</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            className={inputClasses("md", "w-full")}
             type="password"
             placeholder="Set an initial password"
             value={formData.password}
@@ -113,10 +115,10 @@ const AddTeamMemberForm = () => {
         </div>
 
         <div>
-          <label className="block text-sm text-zinc-400 mb-1">Timezone</label>
+          <label className="block text-sm text-ink-muted mb-1">Timezone</label>
           {/* Fixed list rather than free text to keep values as valid IANA timezone strings */}
           <select
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            className={inputClasses("md", "w-full")}
             value={formData.timezone}
             onChange={e => setFormData({ ...formData, timezone: e.target.value })}
             required
@@ -134,9 +136,9 @@ const AddTeamMemberForm = () => {
         </div>
 
         <div>
-          <label className="block text-sm text-zinc-400 mb-1">Role</label>
+          <label className="block text-sm text-ink-muted mb-1">Role</label>
           <input
-            className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+            className={inputClasses("md", "w-full")}
             placeholder="e.g. Engineer"
             value={formData.role}
             onChange={e => setFormData({ ...formData, role: e.target.value })}
@@ -144,12 +146,9 @@ const AddTeamMemberForm = () => {
           />
         </div>
 
-        <button
-          type="submit"
-          className="w-full bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white font-medium py-3 rounded-lg transition-all duration-200 shadow-lg shadow-violet-500/10 cursor-pointer"
-        >
+        <Button type="submit" variant="primary" size="md" className="w-full">
           Add Member
-        </button>
+        </Button>
       </form>
     </div>
   );

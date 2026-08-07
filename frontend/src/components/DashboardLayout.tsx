@@ -5,7 +5,7 @@ import AppHeader from './AppHeader';
 // Mirrors AdminLayout's shell (dark background + AppHeader + Outlet) but
 // passes no tabs, since /dashboard has no sub-navigation to switch between
 const DashboardLayout = () => (
-  <div className="min-h-screen bg-[#0f1112] text-white">
+  <div className="min-h-screen bg-canvas text-white">
     <AppHeader />
     <Outlet />
   </div>

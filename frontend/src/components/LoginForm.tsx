@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/useAuth';
+import Button from './Button';
+import { inputClasses } from '../utils/ui';
 
 const LoginForm = () => {
   const [email, setEmail] = useState('');
@@ -25,18 +27,18 @@ const LoginForm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1112] flex items-center justify-center">
-      <div className="bg-zinc-800 border border-zinc-700/60 p-8 rounded-xl shadow-xl max-w-sm w-full mx-4">
+    <div className="min-h-screen bg-canvas flex items-center justify-center">
+      <div className="bg-card border border-line p-8 rounded-xl shadow-xl max-w-sm w-full mx-4">
         <h1 className="text-2xl font-bold text-white mb-6 text-center">Team Availability Dashboard</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {error && <p className="text-dnd text-sm">{error}</p>}
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Email</label>
+            <label className="block text-sm text-ink-muted mb-1">Email</label>
             <input
               type="email"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+              className={inputClasses("md", "w-full")}
               value={email}
               onChange={e => setEmail(e.target.value)}
               required
@@ -44,23 +46,19 @@ const LoginForm = () => {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1">Password</label>
+            <label className="block text-sm text-ink-muted mb-1">Password</label>
             <input
               type="password"
-              className="w-full bg-zinc-800 text-white border border-zinc-700 rounded px-4 py-2 transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600"
+              className={inputClasses("md", "w-full")}
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full bg-violet-600 hover:bg-violet-500 active:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-all duration-200 shadow-lg shadow-violet-500/10 cursor-pointer"
-          >
+          <Button type="submit" variant="primary" size="md" disabled={submitting} className="w-full">
             {submitting ? 'Logging in...' : 'Log In'}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

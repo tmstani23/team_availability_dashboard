@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { useTeam } from '../context/useTeam';
 import { shiftMemberId } from '../utils/scheduleTime';
+import Button, { buttonClasses } from './Button';
 
 // Dismissible, non-blocking nudge shown when the logged-in member has zero
 // RecurringShift records at all - the "never set up" state, distinct from an
@@ -29,9 +30,9 @@ const FirstRunHoursGate = () => {
   if (hasAnyHours) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-zinc-800 border border-amber-500/60 rounded-xl shadow-xl p-4">
+    <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-card border border-away/60 rounded-xl shadow-xl p-4">
       <h4 className="text-white font-semibold text-sm mb-1">Set your weekly hours</h4>
-      <p className="text-zinc-400 text-xs mb-3">
+      <p className="text-ink-muted text-xs mb-3">
         You haven't set up your standing hours yet - the schedule grid won't
         know when you're working until you do.
       </p>
@@ -39,16 +40,11 @@ const FirstRunHoursGate = () => {
         <Link
           to="/profile/hours"
           onClick={() => setDismissed(true)}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+          className={buttonClasses('primary', 'sm')}
         >
           Set my hours
         </Link>
-        <button
-          onClick={() => setDismissed(true)}
-          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-700 hover:bg-zinc-600 text-white transition-colors"
-        >
-          Not now
-        </button>
+        <Button onClick={() => setDismissed(true)}>Not now</Button>
       </div>
     </div>
   );

@@ -15,21 +15,29 @@ import type { ReactNode } from 'react';
 // meeting in the same hour), and carves no longer require an active cell (a
 // meeting can be booked outside someone's shift; a lunch never can).
 
-// Cell colors. Kept as literals rather than Tailwind classes because the
-// carve-out is painted with a gradient built at runtime from a fraction, and
-// Tailwind can't generate a class for an arbitrary percentage. These match
-// bg-emerald-600 / bg-zinc-800 / bg-violet-600 so cells rendered here sit
-// flush with the Tailwind-styled ones around them.
-const COLOR_ACTIVE = '#059669';   // emerald-600 - on shift
-const COLOR_OVERLAP = '#7c3aed';  // violet-600 - everyone free (overlap row)
-const COLOR_IDLE = '#27272a';     // zinc-800 - not working
-export const COLOR_CARVE = '#3f3f46';    // zinc-700 - carved out of an active block
+// Cell colors. These are CSS var() references rather than hex literals: the
+// carve-out is painted with a gradient built at runtime from a fraction, which
+// Tailwind can't generate a class for, but a CSS gradient accepts var() just
+// fine. So the tokens in index.css stay the single source and there's no hex
+// mirrored into TypeScript to drift out of sync.
+const COLOR_ACTIVE = 'var(--color-shift)';    // on shift
+const COLOR_OVERLAP = 'var(--color-booked)';  // everyone free (overlap row)
+const COLOR_IDLE = 'var(--color-idle)';       // not working
+export const COLOR_CARVE = 'var(--color-carve)'; // carved out of an active block
 // Meetings get their own carve colour so a booked hour doesn't read as a
-// lunch. Violet matches the overlap row and the "In a meeting" pill - the
-// overlap row is where meetings get found, so the whole feature stays one
-// colour. Exported because the CALLER decides what a slice means; this
-// component still doesn't know or care (see the header note).
-export const COLOR_MEETING = '#6d28d9'; // violet-700
+// lunch. Rose matches the overlap row and the "In a meeting" pill - the overlap
+// row is where meetings get found, so the whole feature stays one colour.
+//
+// It used to be violet, which collided with the primary button (both were
+// literally #7c3aed). Moving it, the constraint that mattered turned out to be
+// legibility against the SHIFT colour rather than against the chrome: a meeting is
+// drawn INSIDE an on-shift block, so booked-next-to-shift is the pair a reader
+// actually has to separate. Warm rose against cool sage separates on hue,
+// value and temperature at once.
+//
+// Exported because the CALLER decides what a slice means; this component still
+// doesn't know or care (see the header note).
+export const COLOR_MEETING = 'var(--color-booked-strong)';
 
 // Quarter-hour guides, drawn only on cells that actually contain a carve-out.
 // A permanent ruler across all 24 columns of every row was the alternative and
@@ -70,7 +78,7 @@ interface ScheduleCellProps {
   // it ignorant of what the slices mean - the caller knows a meeting outranks
   // a lunch, so the caller lists lunch first.
   carves?: CellCarve[];
-  // Violet treatment for the overlap row, emerald for member rows.
+  // Rose treatment for the overlap row, sage for member rows.
   variant?: 'member' | 'overlap';
   children?: ReactNode;
 }
@@ -125,8 +133,8 @@ const ScheduleCell = ({ isActive, carves, variant = 'member', children }: Schedu
 
   return (
     <div
-      className={`border border-zinc-700 h-10 flex items-center justify-center text-[10px] rounded transition-colors
-        ${isActive ? 'text-white font-medium' : 'text-zinc-500'}
+      className={`border border-line h-10 flex items-center justify-center text-[10px] rounded-md transition-colors
+        ${isActive ? 'text-white font-medium' : 'text-ink-faint'}
       `}
       style={{
         // The solid base sits underneath as a background COLOR, so the

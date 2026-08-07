@@ -27,9 +27,10 @@ interface MeetingPanelProps {
 // two time inputs invite "ends before it starts", and every meeting worth
 // booking here is one of these.
 const DURATIONS = [15, 30, 45, 60, 90, 120];
+import { inputClasses } from '../utils/ui';
+import Button from './Button';
 
-const inputClass =
-  'bg-zinc-800 text-white border border-zinc-700 rounded px-2 py-1.5 text-sm transition-colors focus:outline-none focus:border-violet-500 hover:border-zinc-600';
+const inputClass = inputClasses('sm');
 
 const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
   const { members, meetings, createMeeting, deleteMeeting, viewerTimezone, now } = useTeam();
@@ -136,48 +137,48 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-md p-4 mb-4">
+    <div className="bg-card border border-line rounded-xl p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-white">
           Meetings today{' '}
-          <span className="text-xs font-normal text-zinc-500">
+          <span className="text-xs font-normal text-ink-faint">
             ({viewerTimezone} — your clock)
           </span>
         </h3>
-        <button
+        <Button
           onClick={() => (isOpen ? setIsOpen(false) : openForm())}
-          className="text-xs px-3 py-1.5 rounded font-medium border bg-violet-500/15 text-violet-300 border-violet-500 hover:bg-violet-500/25 transition-colors"
+          variant="outline" size="sm"
         >
           {isOpen ? 'Cancel' : 'Book a meeting'}
-        </button>
+        </Button>
       </div>
 
       {/* The day's bookings. Empty is a real state worth labelling - a blank
           panel reads as "not loaded" rather than "nothing booked". */}
       {rows.length === 0 ? (
-        <p className="text-xs text-zinc-500">Nothing booked for today.</p>
+        <p className="text-xs text-ink-faint">Nothing booked for today.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {rows.map(({ meeting, carve }) => (
             <li
               key={meeting._id}
-              className="flex items-center justify-between gap-3 text-xs bg-zinc-800 border border-zinc-700/60 rounded px-2.5 py-1.5"
+              className="flex items-center justify-between gap-3 text-xs bg-inset border border-line rounded-md px-2.5 py-1.5"
             >
               <div className="min-w-0">
                 <span className="font-medium text-white">{meeting.title}</span>
-                <span className="text-zinc-400">
+                <span className="text-ink-muted">
                   {' '}
                   {carve
                     ? `${formatFractionalHour(carve.startHour)}–${formatFractionalHour(carve.endHour)}`
                     : 'outside today'}
                 </span>
-                <div className="text-zinc-500 truncate">
+                <div className="text-ink-faint truncate">
                   {meeting.attendeeIds.map(memberName).join(', ')}
                 </div>
               </div>
               <button
                 onClick={() => handleDelete(meeting._id)}
-                className="shrink-0 text-zinc-500 hover:text-red-400 transition-colors"
+                className="shrink-0 text-ink-faint hover:text-dnd transition-colors"
                 aria-label={`Delete ${meeting.title}`}
               >
                 Delete
@@ -188,7 +189,7 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
       )}
 
       {isOpen && (
-        <form onSubmit={handleSubmit} className="mt-4 pt-4 border-t border-zinc-700 flex flex-col gap-3">
+        <form onSubmit={handleSubmit} className="mt-4 pt-4 border-t border-line flex flex-col gap-3">
           <input
             className={inputClass}
             placeholder="What's the meeting?"
@@ -213,7 +214,7 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
           </div>
 
           <div>
-            <div className="text-xs text-zinc-500 mb-1.5">Attendees</div>
+            <div className="text-xs text-ink-faint mb-1.5">Attendees</div>
             <div className="flex flex-wrap gap-1.5">
               {members.map(member => {
                 const checked = attendeeIds.includes(member._id);
@@ -225,8 +226,8 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
                     onClick={() => toggleAttendee(member._id)}
                     className={`text-xs px-2 py-1 rounded-full border transition-colors ${
                       checked
-                        ? 'bg-violet-500/15 text-violet-300 border-violet-500'
-                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600'
+                        ? 'bg-brand/15 text-brand-hover border-brand'
+                        : 'bg-inset text-ink-muted border-line hover:border-line-strong'
                     }`}
                   >
                     {member.name}
@@ -238,21 +239,21 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
             {/* Says the rule before the server has to. The backend is still the
                 authority - this is a hint, not the check. */}
             {teamMemberId && !attendeeIds.includes(teamMemberId) && (
-              <div className="mt-1.5 text-[11px] text-amber-400/80">
+              <div className="mt-1.5 text-[11px] text-away/80">
                 You can only book meetings you're attending — add yourself.
               </div>
             )}
           </div>
 
-          {error && <div className="text-xs text-red-400">{error}</div>}
+          {error && <div className="text-xs text-dnd">{error}</div>}
 
-          <button
+          <Button
             type="submit"
             disabled={saving}
-            className="self-start text-xs px-3 py-1.5 rounded font-medium border bg-violet-500/15 text-violet-300 border-violet-500 hover:bg-violet-500/25 transition-colors disabled:opacity-50"
+            variant="outline" size="sm" className="self-start"
           >
             {saving ? 'Booking…' : 'Book it'}
-          </button>
+          </Button>
         </form>
       )}
     </div>

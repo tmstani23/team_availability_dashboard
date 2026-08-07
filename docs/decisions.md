@@ -24,6 +24,138 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — Design pass: visual system (8/7)
+Scoped as "button colors and card polish." Became a real design system, because
+the first look at the palette found that violet was the primary button colour
+AND the overlap-row colour at the same hex (#7c3aed both), which isn't a taste
+problem to polish - it's the palette telling two stories with one value.
+
+VERIFIED 8/7 (Tim, browser QA + `npm run lint` + `npm run test:run` on Windows):
+every surface swept - login, dashboard, admin Schedule + Manage, /profile/hours,
+/members/:id/hours, first-run gate, TeamMemberCard expanded.
+
+### DECISION: chrome and data never share a hue
+The rule the whole system hangs on, and the one that makes the original
+collision structurally impossible rather than merely fixed:
+- BRAND (violet) means "you can interact with this" - buttons, links, focus
+  rings, selection, native control accents. Nothing else.
+- SCHEDULE colours (sage / rose / carve) mean what's on the calendar. They
+  appear in the grid and in the status pill describing the same fact, and never
+  on a control.
+Everything below follows from it. Without the rule, the next feature that needs
+a colour re-creates the same problem somewhere else.
+
+PALETTE - slate neutrals, violet-pushed accent, sage shifts, rose meetings.
+- Arrived at by looking at real references rather than picking hues: Radix's
+  12-step scale (each step has an assigned job - 1-2 app background, 3-5
+  component fills, 6-8 borders, 9-10 solid fills, 11-12 text) is the skeleton,
+  since "no stated job per step" is exactly why zinc-700/800/900 got chosen by
+  feel. The 2026 dark-dashboard pattern of ONE saturated accent against
+  desaturated neutrals doesn't transfer directly here - this app has six status
+  colours plus four grid fills - which is what forced the chrome/data split
+  above rather than a single-accent scheme.
+- THE ACCENT IS TUNED TO THE BASE, not chosen in isolation. Straight periwinkle
+  on blue-grey neutrals reads as "the background, but brighter" - only ~20° of
+  hue separation. Pushed to #7c74f2 (violet-ward) it separates. Had the base
+  been the aubergine option, the correct move was the opposite direction.
+- ROSE WAS PICKED AGAINST SAGE, NOT AGAINST THE CHROME. Meetings draw INSIDE
+  on-shift blocks, so booked-on-shift is the pair a reader has to separate.
+  An earlier cut used sky, which satisfied "not violet" while sitting near the
+  then-emerald shift colour - a chrome collision traded for a data one. Warm
+  rose against cool sage separates on hue, value and temperature at once, and
+  survives red-green colour blindness where two greens or a green/cyan pair
+  would not.
+- `--color-ok` is deliberately the SAME VALUE as `--color-shift`. The Active
+  pill and the on-shift grid block are two renderings of one fact and were
+  previously two different greens.
+- `dnd` keeps a conventional red - the one status where convention beats
+  palette cohesion, since a warning that blends in isn't a warning. Pulled
+  slightly orange-ward to hold apart from `booked` rose, the nearest hue and
+  the only pill it can sit beside.
+- Text tokens (`ink` / `ink-muted` / `ink-faint`) are slate-tinted. Plain zinc
+  greys read faintly brown against a blue-grey base - a mismatch that's
+  noticeable without being nameable.
+
+TOKENS - `@theme` in index.css. NOTE FOR ANYONE COMING FROM TAILWIND v3: v4
+keeps theme config in CSS, and `tailwind.config.js` was a v3-style config that
+v4 IGNORED entirely (no `@config` directive in the stylesheet), so it had been
+dead the whole time. Deleted by hand 8/7.
+
+DELETE BUTTONS GO QUIET. Six solid red fills made Delete the loudest thing on a
+Manage page that's otherwise read-only information - the eye reached "Delete"
+before it reached any member's name. Colour still carries the warning, only the
+weight drops. If a confirm step is ever added, the solid fill belongs THERE:
+loud at the moment of consequence, not at rest.
+
+NATIVE CONTROLS - `accent-color` set once on `:root`. This was the actual cause
+of the Windows-blue Lunch checkboxes: TeamHoursPanel carried `accent-violet-500`
+on its own checkbox and HoursEditor never got it. One inherited rule instead of
+a class to remember per control, which is the same reasoning as Button below.
+Date/time picker glyphs get a filter so they're visible against the inputs.
+
+TYPE - Space Grotesk headings, Inter body. There was NO font stack set at all
+before this; the app was falling through to the browser default. Applied via a
+bare `h1-h4` rule so no component has to remember a font class. Inter keeps the
+body AND the grid deliberately - Space Grotesk's wider forms cost horizontal
+room, and the grid is the most space-constrained surface here. Fonts are
+`<link>`ed in index.html rather than `@import`ed in CSS, since an @import can't
+be discovered until the stylesheet it lives in has parsed.
+
+`Button.tsx` + `utils/ui.ts` - one definition each for buttons and fields.
+Before this every call site restated its own class string and they HAD drifted:
+LoginForm and AddTeamMemberForm had `active:` states, HoursEditor and
+TeamMemberCard didn't; some had disabled styling and some didn't; padding came
+in three sizes with no rule behind which went where. Same argument as
+STATUS_META and scheduleTime.ts. `buttonClasses()` is exported separately
+because three call sites are `<Link>`s that must look identical - without it
+they'd go straight back to hand-copying. Inputs got a class helper rather than
+a component, since input/select/textarea don't share a props shape.
+
+ELEVATION - four steps (canvas / surface / card / inset) with the rule that a
+container never reuses its parent's step. That found THREE same-background
+collisions, not the one on the known-issues list: MeetingPanel on ScheduleView's
+main column, plus its own list rows and attendee chips, which would have
+collided the moment the panel stepped up. TeamMemberCard's badge panel steps
+DOWN to inset. Radius collapsed to controls `md` / cards `xl` / pills `full`,
+retiring 32 bare `rounded` uses.
+
+FIXES FOUND ALONG THE WAY:
+- STATUS PILL WRAPPED onto two lines for long labels ("In a meeting") next to
+  long names. Not a sizing tweak: a flex child's default `min-width: auto` means
+  it won't shrink below its content, so the PILL was what gave way. `min-w-0`
+  plus `truncate` on the name column and `whitespace-nowrap shrink-0` on the
+  pill makes the name clip instead - the right one to sacrifice, since a
+  clipped name is still recognisable and a wrapped pill just looks broken.
+- TABULAR NUMERALS (`.tnum`) on every clock, hour label and shift range.
+  Proportional digits make `1` narrower than `0`, so a live-ticking clock
+  shifts sideways as the minute rolls; on a roster of them that reads as the
+  layout twitching.
+- TeamMemberCard's clock was still calling `dayjs()` at render, so it froze at
+  first paint instead of ticking with the poll. Same fix HoursEditor got 8/2 and
+  the sidebar got earlier the same day. That's three components that each had to
+  learn this separately, which suggests `now`-from-context deserves to be the
+  documented default rather than a repeated correction.
+- index.html still had `<title>frontend</title>`.
+
+VERIFICATION NOTE worth reusing: `tsc` proves nothing about Tailwind classes -
+an unknown utility is silently omitted, not an error, so a typo'd token name
+compiles clean and just doesn't paint. `vite build` can't run in the sandbox
+(rolldown native bindings, same blocker as Vitest), so the check was
+`npx @tailwindcss/cli -i src/index.css -o /tmp/out.css` and grepping the output
+for each new utility INCLUDING the prefixed forms (`.hover\:border-line-strong`,
+`.focus-visible\:ring-brand-hover\/60`), which is where a bad token would fail
+quietly.
+
+REJECTED - monochrome chrome (near-white buttons, colour reserved entirely for
+data). Structurally the strongest answer and the current Vercel/shadcn pattern,
+but it reads stark and drops the brand identity, and this is a portfolio piece
+where that costs something real.
+REJECTED - moving meetings to cyan, then to sky. See the rose reasoning above.
+REJECTED - blue as the interactive colour. It collided with the existing
+`border-blue-500` "you" marker in the sidebar, and the marker's meaning is
+already carried in words by the "(You)" label - but the deeper problem was that
+blue-as-action never addressed why the palette had no rule in the first place.
+
 ## COMPLETED — Doc split + sidebar timezone label (8/7)
 Chunk 1 of the order agreed 8/3. Two unrelated small things paired to make one
 session worth opening; neither depended on the other.
