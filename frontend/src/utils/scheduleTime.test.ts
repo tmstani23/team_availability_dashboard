@@ -16,6 +16,7 @@ import {
   isHourInRange,
   formatHourLabel,
   formatHourRange,
+  formatTimezoneLabel,
   type HourRange,
   type ShiftResolution,
 } from './scheduleTime';
@@ -955,5 +956,41 @@ describe('meetingsForMember', () => {
     ];
     expect(meetingsForMember(all, 'b').map(m => m._id)).toEqual(['m1', 'm3']);
     expect(meetingsForMember(all, 'z')).toEqual([]);
+  });
+});
+
+describe('formatTimezoneLabel', () => {
+  it('takes the city off a two-segment IANA zone', () => {
+    expect(formatTimezoneLabel('Australia/Sydney')).toBe('Sydney');
+    expect(formatTimezoneLabel('Europe/London')).toBe('London');
+  });
+
+  it('turns underscores into spaces', () => {
+    expect(formatTimezoneLabel('America/New_York')).toBe('New York');
+    expect(formatTimezoneLabel('Pacific/Port_Moresby')).toBe('Port Moresby');
+  });
+
+  // Three-segment zones are the reason this takes the LAST segment rather
+  // than the second. Splitting on '/' and taking index 1 gives "Argentina"
+  // and "Indiana" here, which are not cities and read as a bug on screen.
+  it('takes the last segment of a three-segment zone', () => {
+    expect(formatTimezoneLabel('America/Argentina/Buenos_Aires')).toBe('Buenos Aires');
+    expect(formatTimezoneLabel('America/Indiana/Indianapolis')).toBe('Indianapolis');
+  });
+
+  it('passes through zones that have no city segment', () => {
+    expect(formatTimezoneLabel('UTC')).toBe('UTC');
+    expect(formatTimezoneLabel('GMT')).toBe('GMT');
+  });
+
+  // The caller shows this next to a real clock, so an empty string is the
+  // signal to print no label at all. Anything else here would be a made-up
+  // place name attached to a time that IS being displayed.
+  it('returns empty string for missing or unusable values', () => {
+    expect(formatTimezoneLabel(undefined)).toBe('');
+    expect(formatTimezoneLabel(null)).toBe('');
+    expect(formatTimezoneLabel('')).toBe('');
+    expect(formatTimezoneLabel('   ')).toBe('');
+    expect(formatTimezoneLabel('America/')).toBe('');
   });
 });

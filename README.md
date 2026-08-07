@@ -19,7 +19,7 @@ Status legend: Implemented / Planned / Cut *(cut entries stay — the reasoning 
 *   **[Implemented] Global Schedule Matrix Grid**: An interactive daily timeline that visually plots individual team members' work shifts side-by-side.
 *   **[Implemented] Automatic Context Time-Shifting**: Dynamically converts and renders all team schedules into the local time zone of the currently viewed user.
 *   **[Implemented] Authentication & Role-Based Access**: JWT-based sessions stored in an httpOnly cookie, with `admin` / `member` roles gating routes on both the API (`authenticate` / `requireAdmin` middleware) and the frontend (`ProtectedRoute`, role-aware layouts). Covers login, logout, and admin-only actions (member management, role promotion, password reset).
-*   **[Implemented] Live Availability Sidebar**: A real-time tracking panel showing each team member's current status, with a "viewer" selector to preview the dashboard as different team members. `TeamMember.status` is a four-value enum — `active` / `away` / `dnd` / `offline` — replacing the old `isAvailable` boolean. Members set their own status via a picker (active/away/dnd), keyed to real auth (`AuthContext.teamMemberId`). What a member *displays* as combines the schedule with what they set, in this order:
+*   **[Implemented] Live Availability Sidebar**: A real-time tracking panel showing each team member's current status, with a "viewer" selector to preview the dashboard as different team members. Each row shows that member's current local time tagged with their zone ("10:41 AM · Sydney") — a bare clock tells you someone says 10:41 but not whether they're an hour ahead of you or fifteen. The city is derived from the stored IANA string rather than stored separately, so a member's zone keeps exactly one source of truth. `TeamMember.status` is a four-value enum — `active` / `away` / `dnd` / `offline` — replacing the old `isAvailable` boolean. Members set their own status via a picker (active/away/dnd), keyed to real auth (`AuthContext.teamMemberId`). What a member *displays* as combines the schedule with what they set, in this order:
 
     1. **Off shift → `offline`** — derived, and it overrides whatever they set. A stored status is a snapshot of a moment someone clicked a button; "they are outside their own working hours right now" is a harder fact.
     2. **Otherwise → whatever they set.**
@@ -59,7 +59,8 @@ The application is structured as a full-stack system utilizing strict type-safet
 
 ## Known Issues / Technical Debt
 
-The working list lives in `nextSteps.md` (canonical). Also tracked: the lingering `viewerId` timezone-preview dependency, `HoursEditor` not marking which weekday is "today" in the *target* member's timezone (a real cross-timezone editing trap), the in-memory-only first-run gate dismissal, and deferred design polish.
+The working list lives in `nextSteps.md` (canonical); the reasoning behind
+everything already built lives in `docs/decisions.md`. Also tracked: the lingering `viewerId` timezone-preview dependency, `HoursEditor` not marking which weekday is "today" in the *target* member's timezone (a real cross-timezone editing trap), the in-memory-only first-run gate dismissal, and deferred design polish.
 
 ## Testing
 
@@ -71,7 +72,10 @@ Unit tests for the pure scheduling/status functions are implemented (Vitest, nod
 team_availability_dashboard/
 ├── backend/       # Express + TypeScript API, Mongoose models
 ├── frontend/      # React + Vite + TypeScript client
-├── nextSteps.md   # working task tracker / decisions log
+├── docs/
+│   ├── decisions.md   # what landed and why - the reasoning trail
+│   └── phases/        # per-phase handoff briefs
+├── nextSteps.md   # working task tracker - what's NEXT only
 └── README.md
 ```
 

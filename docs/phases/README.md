@@ -19,7 +19,11 @@ finishing is the cue to hand over for testing, not to start writing the
 | 2 | `phase-2-recurring-lunch.md` | Contained model change, clear spec. |
 | 3 | `phase-3-meetings.md` | A genuinely new timezone concept — settle the design before building. |
 
-Phases 0-2 are complete. Phase 3's doc puts its design questions before its
-build steps deliberately: meetings store a UTC instant while everything else
-in the codebase stores wall-clock strings, and mixing the two is a bug that
-compiles, passes tests, and only shows up for people in another timezone.
+ALL FOUR PHASES ARE COMPLETE (0-2 on 8/2, 3 on 8/3). These docs are kept as
+the briefs the work was built from; what actually landed, including where a
+brief turned out to be wrong, is in `docs/decisions.md`.
+
+Phase 3's doc puts its design questions before its build steps deliberately:
+meetings store a UTC instant while everything else in the codebase stores
+wall-clock strings, and mixing the two is a bug that compiles, passes tests,
+and only shows up for people in another timezone.

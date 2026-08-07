@@ -6,6 +6,7 @@ import {
   getScheduleState,
   meetingsForMember,
   isMeetingInProgress,
+  formatTimezoneLabel,
 } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
@@ -24,14 +25,27 @@ const TeamStatusSidebar = () => {
   // off this - it must match the identity the backend trusts from the JWT.
   const { teamMemberId } = useAuth();
 
-  // Converts a member's timezone into their local clock time. Falls back to
-  // the browser's local time if the timezone string is invalid, so a bad
-  // value never crashes the render.
+  // Converts a member's timezone into their local clock time, tagged with the
+  // zone it's in ("10:41 AM · Sydney"). Without the tag it's a bare number -
+  // you can read that someone says 10:41 but not whether they're an hour ahead
+  // of you or fifteen, which is the actual question being asked of this row.
+  //
+  // Reads `now` from context rather than calling dayjs() here, so the clock
+  // ticks with the poll on a tab left open. (It happened to update anyway,
+  // since a changing `now` re-renders this component - but that's an accident
+  // of an unrelated dependency, not something to rely on.)
+  //
+  // Falls back to the browser's local time UNLABELLED if the timezone string
+  // is invalid, so a bad value never crashes the render. Dropping the label in
+  // that case is the point: the time being shown is then the viewer's own, and
+  // tagging it with the member's intended city would confidently mislabel it.
   const getLocalTime = (tz: string) => {
+    const zone = formatTimezoneLabel(tz);
     try {
-      return dayjs().tz(tz).format('hh:mm A');
+      const clock = now.tz(tz).format('hh:mm A');
+      return zone ? `${clock} · ${zone}` : clock;
     } catch {
-      return dayjs().format('hh:mm A');
+      return now.format('hh:mm A');
     }
   };
 

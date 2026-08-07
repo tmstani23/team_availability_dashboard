@@ -522,3 +522,26 @@ export function formatHourRange(range: HourRange | null): string {
   if (!range) return 'No shift';
   return `${formatHourLabel(range.startHour)}–${formatHourLabel(range.endHour)}`;
 }
+
+/**
+ * Turns an IANA timezone string into a short city label: "Australia/Sydney"
+ * becomes "Sydney", "America/New_York" becomes "New York".
+ *
+ * DERIVED, never stored. A member's zone has exactly one source of truth
+ * (TeamMember.timezone) and a second field holding the display form would be
+ * one more thing to keep in sync for no gain - the IANA string already
+ * contains the city.
+ *
+ * Takes the LAST segment because some zones have three
+ * ("America/Argentina/Buenos_Aires" -> "Buenos Aires"), and the last one is
+ * always the place. Zones with no slash at all (UTC, GMT) pass through as-is.
+ * Returns '' for a missing or unusable value so callers can drop the label
+ * rather than print something misleading next to a real clock.
+ */
+export function formatTimezoneLabel(tz: string | undefined | null): string {
+  if (!tz || typeof tz !== 'string') return '';
+  const segments = tz.split('/');
+  const city = segments[segments.length - 1].trim();
+  if (!city) return '';
+  return city.replace(/_/g, ' ');
+}
