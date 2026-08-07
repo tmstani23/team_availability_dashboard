@@ -126,10 +126,12 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
   const targetId = mode === 'self' ? teamMemberId : paramId;
   const targetMember = members.find(m => m._id === targetId);
 
-  // The clocks. `viewerNow` is the browser's own time - deliberately NOT
-  // TeamContext.viewerTimezone, which is the legacy "simulate as user"
-  // dropdown (tech debt, see nextSteps.md). "Your time" here has to mean the
-  // person actually typing, not whoever is being previewed.
+  // The clocks. `viewerNow` is the browser's own time, which is what "your
+  // time" has to mean here - the person actually typing. This used to need a
+  // note explaining why it deliberately ignored TeamContext.viewerTimezone
+  // (then the legacy "simulate as user" dropdown); since that retired,
+  // viewerTimezone IS the browser's zone, so the two agree by construction and
+  // there's no longer a distinction to defend.
   const viewerNow = now;
   const targetNow = inZone(now, targetMember?.timezone);
 

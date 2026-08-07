@@ -9,6 +9,7 @@ import {
   getCurrentShiftForMember,
   isHourInRange,
   formatHourLabel,
+  formatTimezoneLabel,
 } from '../utils/scheduleTime';
 import ScheduleCell, { COLOR_CARVE, COLOR_MEETING, type CellCarve } from './ScheduleCell';
 
@@ -37,7 +38,15 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
   return (
     <div className="p-4">
       <h2 className="text-2xl font-bold text-white mb-4">Daily Schedule Matrix</h2>
-      <p className="text-xs text-ink-muted">Viewer TZ: {viewerTimezone}</p>
+      {/* The grid MUST stay visibly labelled with its zone. Every column here
+          is a converted wall clock, and MeetingPanel books against this same
+          value - so if a reader can't see which clock they're reading, "2pm"
+          in the booking form is ambiguous. "Viewer TZ" was simulation-era
+          wording from when this zone was a dropdown; it's the reader's own
+          clock now, so it says so. */}
+      <p className="text-xs text-ink-muted mb-4">
+        All times in {formatTimezoneLabel(viewerTimezone) || viewerTimezone} — your local time
+      </p>
 
       <div className="schedule-grid-container overflow-x-auto max-w-full pb-4">
         {(() => {

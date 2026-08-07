@@ -3,36 +3,37 @@
 Last updated: 2026-08-07
 
 ## START HERE NEXT SESSION
-Phases 0-3 are committed and browser-verified. So is chunk 1 of the 8/3 order
-(this file's split + the sidebar timezone label) and the DESIGN PASS, both
-tested 8/7 - see `docs/decisions.md`.
+Phases 0-3 are committed and browser-verified. So are the doc split + sidebar
+timezone label, the DESIGN PASS, and the viewerId RETIREMENT - all tested 8/7,
+see `docs/decisions.md`.
 
-THE ROADMAP'S FEATURE WORK IS DONE, and so is the visual system. What's left:
+THE ROADMAP'S FEATURE WORK IS DONE, so is the visual system, and so is the
+last pre-auth leftover. Everything remaining is polish, one new feature, and
+deploy:
 
-1. RETIRE viewerId, then FINAL TESTING. The design pass that used to come
-   first is done, so this is now the head of the queue.
-   GOOD FRESH-SESSION BOUNDARY, and the one remaining piece with real
-   architectural risk - viewerId currently owns the grid's only timezone
-   source, so this is a replacement, not a deletion. Worth a higher model.
-   The design decision it depended on is settled: see
-   `### DECISION: viewer timezone source` below, which REVERSES step 2a.
-   This is where the "Simulating Active User" dropdown becomes a static
-   identity block showing the LOGGED-IN user's name, clock and timezone
-   (step 2d of the plan). Reuse `formatTimezoneLabel` from scheduleTime.ts -
-   it already ships and the sidebar roster rows already read that way, so the
-   identity block is a matter of calling it, not designing a format.
-   Consequence, accepted deliberately: once the dropdown is gone, checking
-   cross-timezone behaviour means logging in as that member in a second
-   browser profile. That's the endstate anyway - a picker implying you can
-   act as someone else is what auth has forbidden since 7/18 - and it's how
-   Phase 1 was QA'd, so the muscle exists.
-   The open question about disagreeing timezones is SETTLED (8/7) - see
-   `### DECISION: viewer timezone source` under (1) below. It reverses step
-   2a, so read it before starting.
-2. DEPLOY to Render + Atlas. Research is in `docs/decisions.md`; possible any
-   time since Phase 0. Deliberately AFTER (1), since deploy is when a real
-   second person gets involved and the identity block should be honest by
-   then.
+1. 12-HOUR CLOCK sweep. START HERE - small, self-contained, and mostly one
+   line in ScheduleGrid's column headers (`{hour}:00` -> `formatHourLabel`).
+   Ordered first because both (2) and (3) touch the grid, and working against
+   final labels beats working against labels about to change.
+2. TIMEZONE PREVIEW. A control that previews a ZONE, not a person. The design
+   is settled - see `### DECISION: timezone PREVIEW` below, and read it before
+   starting; it has a display-zone / write-zone split that isn't optional.
+   This replaces what the retired dropdown was genuinely useful for (demoing
+   cross-timezone behaviour) without reintroducing impersonation.
+3. RESPONSIVE / MOBILE, demo-surface scope. Bigger than it first looked - the
+   grid is effectively invisible at narrow widths, so this needs structural
+   work and not just breakpoints. Two concrete suspects are already written
+   up under the item. The expensive question (what the grid IS on a phone) is
+   explicitly deferred.
+4. DEPLOY to Render + Atlas. Research is in `docs/decisions.md`; possible any
+   time since Phase 0. Deliberately last, since deploy is when a real second
+   person gets involved.
+
+NOT BLOCKING, but the next person to touch it will trip over it: `npm run
+lint` reports one error in `Button.tsx` - `buttonClasses` exported alongside a
+component trips `react-refresh/only-export-components`. Pre-existing from the
+8/7 design pass. The fix is moving `buttonClasses` to its own module and
+updating call sites.
 
 QA status as of 8/3 - Phase 3, all by hand: meeting drawing + "In a meeting"
 pill, the same meeting moving 17:00 (Chicago) -> 07:00 (Tokyo) on a viewer
@@ -83,137 +84,176 @@ at-a-glance summaries that used to sit here were describing finished work.
 
 What remains is below, in order.
 
-### 1 — DESIGN PASS, then RETIRE viewerId, then final testing
+### DECISION: timezone PREVIEW, not user simulation (8/7, design only)
 
-Sequenced that way deliberately - see the plan below. Both were previously
-listed as separate loose items; they're coupled.
+Raised while testing the viewerId retirement: with the dropdown gone, demoing
+cross-timezone behaviour needs DevTools, which is fine for QA and useless for
+showing the app to a person.
 
-Step 1 - design pass. DONE 8/7, see `docs/decisions.md`. It grew well past
-"button colors and card polish" into a real visual system (tokens, palette,
-typeface, Button component), which is why it's logged as its own entry.
+FIRST PROPOSAL, rejected: an admin-only "debug mode" restoring the old
+simulate-as-user dropdown. Two problems.
+- It would TEST THE WRONG PATH. The old dropdown was load-bearing - it WAS the
+  zone source, so QA through it exercised the real thing. A debug override
+  SHADOWS the real source, so testing through it would never exercise
+  browser-sourcing, the fallback chain, or mismatch detection - precisely the
+  new code. It'd give confidence about the debug path while the shipping path
+  went unverified.
+- "Doesn't change any logic" isn't reachable. `viewerTimezone` feeds four
+  consumers: ScheduleGrid, TeamHoursPanel, MeetingPanel's wall-clock ->
+  instant conversion, and the meetings FETCH WINDOW. Overriding it overrides
+  all four, so debug mode could book a real meeting interpreted through the
+  simulated user's zone. Making it view-only means splitting display-zone from
+  write-zone, which IS a logic change, in the exact spot this decision block
+  called forced.
 
-Step 2 - retire the "Simulating Active User" dropdown. This is not just
-deleting a <select>: viewerId currently drives WHICH TIMEZONE THE WHOLE
-GRID RENDERS IN (TeamContext.viewerTimezone -> ScheduleGrid's conversion).
-Removing the control without replacing that source leaves the grid with no
-timezone at all. The plan:
-  a. Point viewerTimezone at the BROWSER's zone (dayjs.tz.guess()), falling
-     back to the logged-in member's stored zone and then 'UTC'. NOTE this is
-     the reverse of what this step said until 8/7 - see the DECISION block
-     below for why. The fallback chain matters either way: the grid must
-     always have a zone to convert into.
-  b. Delete viewerId / setViewer / viewerMember from TeamContext and
-     TeamContextType, and the <select> from TeamStatusSidebar.
-  c. Sweep for remaining readers - `viewerTimezone` is used by
-     ScheduleGrid and TeamHoursPanel and should keep working untouched if
-     (a) is done properly. That's the test: if those two files need edits,
-     the replacement isn't clean.
-  d. REPLACE the dropdown with a small profile block in the same spot: an
-     avatar/initials icon, the logged-in member's name, their current local
-     time, and their timezone. Use `tnum` on the clock (see index.css) and
-     the Button/buttonClasses helpers for anything clickable - the design
-     system landed 8/7, so this step should not be inventing any styling.
-     Not just a deletion - that corner of the
-     sidebar currently answers "whose clock is this grid in?", and the grid
-     stays timezone-converted after the dropdown goes, so the question
-     outlives the control. A static identity block answers it honestly
-     where a picker implied you could change it.
-     Reuse `formatTimezoneLabel` from scheduleTime.ts (shipped 8/7 for the
-     roster rows), and read the clock from TeamContext's ticking `now`
-     rather than dayjs() at render, so it stays live (same reasoning as
-     HoursEditor). TeamStatusSidebar's getLocalTime already does both and
-     is the shape to copy.
-Once presence is real (Phase 1) and meetings exist (Phase 3), "simulating"
-another user is actively misleading rather than merely vestigial - it
-implies you can act as them, which auth has correctly forbidden since 7/18.
+ANSWER: a control that previews a ZONE, not a PERSON. "Show this grid in
+Berlin" implies nothing about identity, so none of the 7/18 impersonation
+reasoning applies - that objection was specifically that acting AS someone
+implies an authority auth forbids.
 
-Step 3 - final testing pass, AFTER both of the above. Doing it earlier
-means testing a UI that's about to change and a timezone source that's
-about to be replaced.
+Better on several axes at once: no admin gate needed (it isn't privileged -
+every member's timezone is already in the GET /team-members response), no
+impersonation problem, and it's arguably a real FEATURE rather than debug
+scaffolding, since "what does my team's day look like in Berlin before I
+schedule this?" is a question a user of an availability dashboard actually
+has. It still demos exactly what's wanted: picking Tokyo shows the same grid
+the Tokyo employee sees.
 
-### DECISION: viewer timezone source (8/7, design only - no code yet)
+THE IRREDUCIBLE COST, either way: display-zone and write-zone must separate.
+Sketch - a `previewTimezone` defaulting to null, consulted ONLY by
+ScheduleGrid and TeamHoursPanel as `previewTimezone ?? viewerTimezone`.
+MeetingPanel and the meetings fetch window keep reading `viewerTimezone`
+unconditionally. While a preview is active the grid needs a persistent banner,
+and MeetingPanel either disables or states plainly that it books in your real
+zone. Without that separation someone previews Tokyo, books "2pm", and it
+lands at 2pm Chicago.
 
-Settles the open question left over from the 8/3 plan: what happens when the
-logged-in member's STORED timezone disagrees with the BROWSER's.
+OPEN: whether preview should persist across reloads. Leaning no - it's a
+transient "let me look at" action, and in-memory sidesteps the persistence
+machinery the viewer-timezone DECISION already rejected for the same reason.
 
-ANSWER: the browser wins for viewing, the stored zone stays the schedule
-identity and is never auto-synced, and the identity block NAMES the
-disagreement instead of hiding or arbitrating it.
+### 1 — 12-HOUR CLOCK EVERYWHERE (small, self-contained)
 
-THE REFRAME that produced this: "the viewer's timezone" is two different
-fields that got conflated, and when they disagree both are correct about
-different things.
-- STORED zone = schedule identity. It resolves the member's standing 9-5 and
-  it's what every OTHER person's screen uses to decide whether they're on
-  shift. If this followed the browser, flying to Tokyo would silently retime
-  a member's working hours for the whole team - their "9-5" becomes 9-5 Tokyo
-  and colleagues see them on shift in the middle of their night. Travel must
-  not rewrite a schedule.
-- BROWSER zone = the clock on the viewer's wall right now. That's what the
-  grid needs, since converting other people's hours onto the clock you're
-  actually reading is the grid's entire job.
+Raised 8/7. ORDERED FIRST because it's cheap and because every later pass
+benefits from it landing before they start: (2) adds a zone-preview banner and
+(3) reflows the grid, and both are easier against final labels than against
+labels that are about to change. "6AM" is also narrower than "6:00", which
+buys real horizontal room for the responsive work.
 
-WHY BROWSER WINS FOR VIEWING - the same principle the heartbeat already
-established: evidence beats a stale claim. The OS knows where the machine is;
-the stored zone is something someone typed once, possibly an admin, possibly
-months ago. Phase 1 decided a live heartbeat outranks a stored status for
-exactly this reason, and this is that argument in a different costume.
+`formatHourLabel` already gives "9AM"/"5PM", but ONLY for the in-cell shift
+start/end labels - it is not used for the column headers. The roster/card
+clocks use `hh:mm A`. The inventory of what actually still renders 24-hour:
 
-CONSEQUENCE FOR MeetingPanel, which the original open question missed:
-`viewerTimezone` is also the input to the one place a wall clock becomes an
-instant (`dayjs.tz(date + time, viewerTimezone)`). If someone in Tokyo reads a
-Tokyo-labelled grid and books "2pm," they mean 2pm Tokyo - otherwise the
-meeting lands in a different column from the one they clicked. The grid and
-the booking form MUST share one value, and it has to be the zone the grid is
-visibly labelled with. This makes browser-wins not just preferable but forced.
+- **ScheduleGrid's column headers**, line ~105: `{hour}:00`, giving
+  "6:00 … 23:00" across all 24 columns. The most visible 24-hour surface in
+  the app and a one-line fix - `formatHourLabel(hour)` already returns exactly
+  the right thing and is already imported in that file.
+- **TeamStatusSidebar, the `Working {startTime}–{endTime}` line.** The only
+  place raw stored `HH:mm` reaches the screen ("Working 09:00–21:00").
+- HoursEditor's two validation strings ("times must be HH:mm (e.g. 09:00)").
+  These describe the STORAGE format, so they may be correct as-is - decide
+  rather than reflexively changing them.
+- Minor, decide while in there: the clocks use `hh:mm A`, which renders
+  "02:41 PM" with a leading zero. `h:mm A` gives "2:41 PM". `.tnum` already
+  holds the digits fixed-width, so the leading zero isn't buying stability.
 
-THE IDENTITY BLOCK shows the browser zone, and when it differs from stored,
-says so and offers the fix:
-    Sarah Chen
-    2:41 PM · Tokyo (this device)
-    Profile says Chicago — update?
-The link goes to the profile page rather than being a one-click sync: changing
-your stored zone changes when teammates see you as working, and that
-consequence should be visible rather than a side effect of clicking something
-convenient.
+DO NOT touch the `<input type="time">` fields in HoursEditor and MeetingPanel.
+Those are locale-driven - Chrome on a US machine already draws them 12-hour
+with an AM/PM spinner. Forcing the format means replacing them with text
+inputs and hand-rolling AM/PM parsing, trading a free picker and free
+validation for a new class of bug.
 
-REJECTED - prompt the viewer to choose (the first instinct, and the trip case
-behind it is real). Three problems. The answer needs somewhere to live, and
-in-memory means re-asking on every reload - the FirstRunHoursGate known issue
-repeating itself - while localStorage or a new field is real persistence
-machinery for a preference set once and forgotten. It's also a modal on a
-dashboard whose stated constraint is reading availability in under two
-seconds. Worst, it frames the disagreement as a CHOICE when it's usually a
-DEFECT: a stale record after a move, an admin's typo at member creation, a
-machine with a misconfigured OS clock. "Use browser this time" fixes nothing,
-so it asks forever.
+THE TRAP, and the only part with real risk: storage stays 24-hour.
+`RecurringShift.startTime` is `HH:mm` and the backend validates that shape, so
+a formatted string must never travel back into component state or up to the
+API. This is display-only, applied at the render edge.
 
-REJECTED - browser wins silently. Simpler, but a stale stored record then
-never surfaces to the one person who can correct it, and a wrong stored zone
-misreports that member's shift to everyone else indefinitely.
+SHAPE: a `formatWallClock(hhmm)` in `scheduleTime.ts` beside `formatHourLabel`,
+with cases added to `scheduleTime.test.ts`. It has to be its own function
+rather than reusing `formatHourLabel` because `HourRange` carries no minutes -
+which is exactly why the existing formatter can't cover this case.
 
-REJECTED - stored wins (the original 2a). Consistent with how every other
-member's hours resolve, but it makes the grid wrong precisely while
-travelling, which is when cross-timezone reading matters most.
+### 2 — BUILD THE TIMEZONE PREVIEW
 
-IMPLEMENTATION NOTE: compare IANA zone STRINGS, never offsets. Two different
-zones can share an offset, and one zone changes its own offset twice a year -
-an offset comparison would flash a false "disagreement" at every DST
-changeover.
+Implements the `### DECISION: timezone PREVIEW, not user simulation` block
+above - read it first, the shape and the rejected alternatives are all there.
 
-### 2 — DEPLOY to Render + Atlas
+Short version: a `previewTimezone` (default null) consulted ONLY by
+ScheduleGrid and TeamHoursPanel as `previewTimezone ?? viewerTimezone`.
+MeetingPanel and the meetings fetch window keep reading `viewerTimezone`
+unconditionally, so a preview can never reinterpret a write. Banner on the
+grid while active.
+
+### 3 — RESPONSIVE / MOBILE, demo-surface scope (8/7)
+
+SCOPE SETTLED UP FRONT: mobile is a DEMO surface, not a use surface. The bar
+is "someone opens this on a phone and it doesn't look broken," NOT "people
+check availability from their phones daily." That distinction is what keeps
+the hard question below deferred and horizontal scroll an acceptable answer.
+
+Sizing, revised 8/7 after seeing it: bigger than the "afternoon of breakpoint
+rules" first guessed, since the grid needs structural work (below), but still
+short of a full phase - the expensive part is the deferred one.
+
+NOT purely breakpoints - confirmed 8/7 that the grid is effectively INVISIBLE
+at narrow widths (member names render, cells can't be found), so this needs
+real component reordering, not just stacking rules.
+
+What's actually broken at narrow widths:
+- **The grid disappears.** Two suspects, both in ScheduleGrid and both
+  independently worth fixing:
+    - `mx-auto` on the row grids (`className="grid mx-auto pl-8"`), which are
+      ~1440px inside an `overflow-x-auto` container. Auto margins on an item
+      wider than its scroll container make part of the overflow UNREACHABLE
+      rather than scrollable - a known trap and the likeliest cause.
+    - The mount effect's `gridContainer.scrollLeft = 360` ("approximate scroll
+      to 8AM"). A magic number tuned to one viewport; on a narrow screen it
+      lands mid-grid with no anchor. Should scroll to `now` rather than a
+      constant, or be skipped below a width threshold.
+- The main/sidebar split never stacks, so both columns stay squeezed. Stacking
+  below `lg` is most of the rest.
+- Compare Availability pills clip their hour labels ("7AM–3P", "8PM–2A")
+  instead of wrapping.
+- MeetingPanel's header collides with its "Book a meeting" button.
+- The member-name column needs to stay visible while the hours scroll, or the
+  grid is unreadable on a phone even once it's findable. Sticky first column
+  is the obvious answer and is probably the single highest-value change here.
+
+DELIBERATELY OUT OF SCOPE, and the reason this isn't a full phase: what the
+GRID should be on a phone. It's 120px + 55px x 24 = ~1440px minimum, so a
+375px screen shows about four hours and "who's free right now" takes swiping -
+which is the one question the app exists to answer in under two seconds. Real
+answers (a "now +/- 4 hours" window, a per-member list layout, drill-down)
+are a design decision with alternatives, and they need their own brief and
+DECISION block. Under demo-surface scope, horizontal scroll is fine.
+
+WARNING for whoever picks up the deferred version: it collides head-on with
+the hardcoded-column-maths known issue below. Those inline styles were left
+alone on purpose because the overlap row depends on being pixel-aligned with
+the member rows, and any responsive grid rework has to touch exactly that.
+
+### 4 — DEPLOY to Render + Atlas
 
 See the deployment research in `docs/decisions.md`. Could happen any time
-after Phase 0; deliberately after (1) so the identity block is honest before
-a second real person sees it.
+after Phase 0; deliberately last, since deploy is when a real second person
+gets involved.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
-- TeamStatusSidebar's "Simulating Active User" dropdown (TeamContext.
-  viewerId) is leftover pre-auth code. PARTIALLY reconciled (7/18): status
-  editing now keys off real auth (AuthContext.teamMemberId), but viewerId
-  still drives which timezone the grid renders in. Fully retiring the
-  dropdown (or pointing the tz preview at real auth) is still outstanding.
+- `npm run lint` reports ONE error, in `Button.tsx`: `buttonClasses` is
+  exported alongside a component, which trips
+  `react-refresh/only-export-components`. Pre-existing from the 8/7 design
+  pass. The fix is moving `buttonClasses` into its own module and updating
+  call sites - deliberately not done as a drive-by during the viewerId work.
+- There is NO self-service timezone editor. `TeamMember.timezone` is only
+  editable by an admin, via TeamMemberCard on `/admin/manage`; `/profile/hours`
+  doesn't touch it. This is why the identity block's mismatch hint NAMES the
+  disagreement rather than linking to a fix (see `docs/decisions.md`, 8/7). If
+  self-service is ever added, that hint should become a link.
+- `BROWSER_TIMEZONE` is read once at module load, so someone who changes their
+  OS timezone with the tab open sees a stale grid until they reload. Accepted:
+  the alternative is re-deriving per render for an answer that essentially
+  never changes. Worth revisiting only if it bites during QA.
 - FirstRunHoursGate dismissal is in-memory only, so it returns on every
   reload until hours are actually set. Deliberate (non-blocking, not
   "seen once, gone forever"), but revisit if it turns out to be annoying

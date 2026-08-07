@@ -61,7 +61,7 @@ The application is structured as a full-stack system utilizing strict type-safet
 ## Known Issues / Technical Debt
 
 The working list lives in `nextSteps.md` (canonical); the reasoning behind
-everything already built lives in `docs/decisions.md`. Also tracked: the lingering `viewerId` timezone-preview dependency, the in-memory-only first-run gate dismissal, meeting carve-outs being distinguished by colour alone (no second non-colour signal yet, unlike the lunch carve's tick marks), and the type scale still being per-component rather than tokenised.
+everything already built lives in `docs/decisions.md`. Also tracked: one outstanding lint error in `Button.tsx`, the absence of a self-service timezone editor (only admins can change a member's zone), the in-memory-only first-run gate dismissal, meeting carve-outs being distinguished by colour alone (no second non-colour signal yet, unlike the lunch carve's tick marks), the type scale still being per-component rather than tokenised, and the responsive/mobile view needing structural work.
 
 ## Testing
 

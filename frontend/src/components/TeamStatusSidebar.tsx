@@ -9,7 +9,6 @@ import {
   formatTimezoneLabel,
 } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
-import { inputClasses } from '../utils/ui';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import type { TeamMember } from '../types';
 import dayjs from 'dayjs';
@@ -19,12 +18,37 @@ import timezone from 'dayjs/plugin/timezone';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+// First letters of the first two words of a name ("Sarah Chen" -> "SC"), for
+// the identity block's avatar. Falls back to one letter for a single-word
+// name and to '?' for an empty one, so the circle is never blank.
+const initials = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(part => part[0] ?? '')
+    .join('')
+    .toUpperCase() || '?';
+
 const TeamStatusSidebar = () => {
-  const { members, recurringShifts, meetings, setStatus, viewerId, setViewer, viewerTimezone, now } = useTeam();
-  // Who is ACTUALLY logged in (real auth), as opposed to viewerId which only
-  // simulates whose timezone the grid previews. Editing your own status keys
-  // off this - it must match the identity the backend trusts from the JWT.
-  const { teamMemberId } = useAuth();
+  const { members, recurringShifts, meetings, setStatus, viewerTimezone, browserTimezone, now } = useTeam();
+  // Who is ACTUALLY logged in. Drives both the status picker (you can only set
+  // your own) and the identity block below - it must match the identity the
+  // backend trusts from the JWT. `role` only decides the WORDING of the
+  // timezone-mismatch hint, since who can fix a stored zone differs by role.
+  const { teamMemberId, role } = useAuth();
+
+  // The logged-in member's own record, for the identity block. Undefined while
+  // members are still loading, and legitimately undefined forever for a badge
+  // with no linked teamMemberId - the block degrades to just the clock rather
+  // than disappearing, since the grid's zone still needs naming either way.
+  const loggedInMember = members.find(m => m._id === teamMemberId);
+
+  // Stored schedule identity vs the clock on this device. Compared as IANA
+  // STRINGS, never offsets: two zones can share an offset, and one zone changes
+  // its own offset twice a year, so an offset comparison would flash a false
+  // mismatch at every DST changeover.
+  const storedZoneDiffers = Boolean(loggedInMember && loggedInMember.timezone !== viewerTimezone);
 
   // Converts a member's timezone into their local clock time, tagged with the
   // zone it's in ("10:41 AM · Sydney"). Without the tag it's a bare number -
@@ -56,24 +80,76 @@ const TeamStatusSidebar = () => {
     // align-items: stretch). Back to sole occupant of this column now that
     // TeamHoursPanel has moved to the main column above ScheduleGrid.
     <div className="w-full h-full bg-surface border-l border-line text-white p-6 box-border overflow-y-auto">
-      {/* Viewer selector - lets you pick which team member's perspective
-          you're viewing the dashboard as (see viewerId in TeamContext) */}
+      {/* IDENTITY BLOCK - replaced the "Simulating Active User" dropdown.
+          Not simply a deletion: this corner answers "whose clock is this grid
+          in?", and the grid stays timezone-converted after the picker goes, so
+          the question outlives the control. A static block answers it honestly
+          where a picker implied you could change it - which auth has forbidden
+          since 7/18 anyway.
+
+          The name/avatar render only when we can resolve the logged-in member;
+          the CLOCK LINE always renders, because that's the part the grid
+          depends on and an admin badge with no linked teamMemberId still needs
+          to know which zone they're reading. */}
       <div className="mb-6 border-b border-line pb-4">
-        <label className="block text-xs text-ink-faint mb-2">
-          Simulating Active User:
-        </label>
-        <select
-          value={viewerId || ''}
-          onChange={(e) => setViewer(e.target.value)}
-          className={inputClasses('sm', 'w-full')}
-        >
-          {members.map(m => (
-            <option key={m._id} value={m._id}>{m.name}</option>
-          ))}
-        </select>
-        <div className="text-xs text-ink-faint mt-2 tnum">
-          Your local time: {getLocalTime(viewerTimezone)}
+        {/* Avatar + name only. The clock deliberately does NOT sit in this row:
+            next to a 36px avatar it had ~150px to work with and truncated to
+            "(this devi...". On its own line below it gets the block's full
+            width and wraps instead of clipping. */}
+        {loggedInMember && (
+          <div className="flex items-center gap-3">
+            {/* Neutral, not brand. `brand` means "you can interact with this"
+                (see index.css) and an avatar is decoration - painting it violet
+                would advertise a click that doesn't exist. */}
+            <div className="shrink-0 w-9 h-9 rounded-full bg-line border border-line-strong flex items-center justify-center text-xs font-semibold text-ink">
+              {initials(loggedInMember.name)}
+            </div>
+            <div className="font-bold text-sm truncate min-w-0">{loggedInMember.name}</div>
+          </div>
+        )}
+
+        {/* The zone the WHOLE GRID is rendered in - always rendered, even
+            without a resolvable member, since the grid's zone still needs
+            naming. No `truncate`: a long city ("Buenos Aires") should wrap to
+            a second line rather than clip.
+
+            "(this device)" appears ONLY alongside a mismatch. The caption is
+            a contrast - it's what makes the amber line below read as two
+            different facts rather than a contradiction. With nothing to
+            contrast against it answers a question nobody asked, and it was
+            the sole cause of the overflow. Also gated on the browser actually
+            having answered: if we fell back to the stored zone, calling it the
+            device's would be a lie (see browserTimezone in TeamContext). */}
+        <div className={`text-xs text-ink-muted tnum ${loggedInMember ? 'mt-2' : ''}`}>
+          {getLocalTime(viewerTimezone)}
+          {storedZoneDiffers && browserTimezone === viewerTimezone && (
+            <span className="text-ink-faint"> (this device)</span>
+          )}
         </div>
+
+        {/* Names the disagreement rather than hiding or arbitrating it. The
+            browser wins for VIEWING, but the stored zone is schedule identity -
+            it decides when everyone else sees this person as on shift - so a
+            stale one misreports them to the whole team until someone corrects
+            it. Surfacing it is what stops "browser wins" from being "browser
+            wins silently".
+
+            Compared as IANA STRINGS, never offsets: two zones can share an
+            offset, and one zone changes its own offset twice a year, so an
+            offset comparison would flash a false mismatch at every DST change.
+
+            Only ever shown here, never on another member's roster row - the
+            browser zone is a fact about THIS device, so the disagreement is
+            undetectable for anyone else. Wording is role-aware because who can
+            fix it differs: timezone is an admin-editable profile field. */}
+        {storedZoneDiffers && loggedInMember && (
+          <div className="mt-2 text-[11px] text-away leading-snug">
+            Your profile says {formatTimezoneLabel(loggedInMember.timezone)}
+            {role === 'admin'
+              ? ' — update it in Manage if that is wrong.'
+              : ' — ask an admin to update it if that is wrong.'}
+          </div>
+        )}
       </div>
 
       <h3 className="mt-0 mb-5 text-lg font-semibold">Live Availability</h3>
@@ -85,7 +161,6 @@ const TeamStatusSidebar = () => {
           // True only for the actually logged-in member. Drives both the
           // "(You)" marker and whether the status picker is shown - you can
           // only set your own status, matching the backend's JWT check.
-          // Note: this is real-auth identity, NOT the viewerId simulation.
           const isSelf = member._id === teamMemberId;
 
           // Today's standing shift, resolved by the member's own weekday. Shown

@@ -3,11 +3,41 @@ import type { TeamMemberStatus, RecurringShift, TeamMember, Meeting } from '../t
 import { API_BASE } from '../config';
 import { useRefreshTick } from '../hooks/useRefreshTick';
 import { viewerDayWindow } from '../utils/scheduleTime';
+import { useAuth } from './useAuth';
 // Context object + useTeam live in their own module so this file exports only
 // a component, which is what Fast Refresh needs to hot-reload it.
 import { TeamContext } from './useTeam';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+// The timezone of the MACHINE this is running on, read from the OS via Intl
+// (that's all dayjs.tz.guess() does). Module-level rather than state because
+// it can't change while the tab is open - the OS zone is fixed for the
+// session, so re-deriving it per render would be work with no possible new
+// answer.
+//
+// null when the lookup fails or returns nothing. That shouldn't happen in a
+// browser that runs the rest of this app, but the value feeds the grid's only
+// timezone, and "no zone at all" is the one outcome the grid can't survive -
+// so the failure is made explicit here and handled by the fallback chain
+// below rather than being assumed away.
+const BROWSER_TIMEZONE: string | null = (() => {
+  try {
+    return dayjs.tz.guess() || null;
+  } catch {
+    return null;
+  }
+})();
 
 export const TeamProvider = ({ children }: { children: ReactNode }) => {
+  // Who is actually logged in. Used only as a FALLBACK timezone source below -
+  // this provider does not otherwise care about identity.
+  const { teamMemberId } = useAuth();
+
   // Standing weekly hours (one record per member per weekday) - replaced the
   // old work-shifts fetch. This is now the only shift data the app fetches:
   // ad-hoc breaks were cut, and the standing lunch rides along on these same
@@ -34,17 +64,27 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   // refreshAllData can re-apply it over whatever the poll just fetched.
   const pendingStatusWrites = useRef<Map<string, TeamMemberStatus>>(new Map());
 
-  // ID of the simulated "currently viewing as" user - a stand-in for real
-  // auth-driven identity in parts of the UI that haven't been wired to
-  // AuthContext yet (e.g. picking whose local time to display)
-  const [viewerId, setViewerId] = useState<string | null>(null);
-
-  const setViewer = (id: string) => setViewerId(id);
-
-  // Falls back to the first member in the list if no viewer has been
-  // explicitly selected yet, so the UI always has someone to display
-  const viewerMember = members.find(m => m._id === viewerId) || members[0];
-  const viewerTimezone = viewerMember?.timezone || 'America/Chicago';
+  // THE ZONE THE GRID RENDERS IN. Replaced the old "simulating active user"
+  // dropdown, which used to own this (see the DECISION block in nextSteps.md).
+  //
+  // The browser wins, because this field means "the clock on the viewer's wall
+  // right now" - converting other people's hours onto the clock you're
+  // actually reading is the grid's whole job, and the OS knows where the
+  // machine is while the stored zone is something someone typed once. This is
+  // the same rule the heartbeat already follows: live evidence beats a stale
+  // claim.
+  //
+  // It is deliberately NOT the logged-in member's stored zone. That field is
+  // schedule IDENTITY - it decides when everyone else sees them as on shift -
+  // and it must not follow the viewer around, or flying to Tokyo would
+  // silently retime a member's working hours for the whole team.
+  //
+  // The chain exists because the grid must always have SOME zone to convert
+  // into; a missing one isn't a degraded render, it's a blank one. Stored zone
+  // is the better guess than UTC when the browser can't answer, and UTC is the
+  // last resort that at least always parses.
+  const loggedInMember = members.find(m => m._id === teamMemberId);
+  const viewerTimezone = BROWSER_TIMEZONE || loggedInMember?.timezone || 'UTC';
 
   const refreshAllData = async () => {
     try {
@@ -98,20 +138,20 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // Fires when TeamProvider mounts (which only happens after login, per
-  // App.tsx's AuthGate), and again whenever the VIEWER'S TIMEZONE CHANGES.
+  // App.tsx's AuthGate), and again if the VIEWER'S TIMEZONE CHANGES.
   //
-  // That second trigger is not cosmetic. The meetings request is scoped to a
-  // window built from viewerTimezone (see refreshAllData), so a stale zone
-  // means fetching the wrong day. Two ways that happens:
-  //   1. On first load, `members` is empty, so viewerTimezone is still the
-  //      'America/Chicago' fallback below - the initial fetch asks for
-  //      Chicago's day, then members arrive and the real zone appears.
-  //   2. Switching the "Simulating Active User" dropdown changes the zone
-  //      outright.
-  // Without this dep the fetched window would stay wrong until the next poll
-  // (~15s), which reads as "meetings are missing/duplicated when I switch
-  // timezones" - i.e. exactly like the timezone bug this phase is about,
-  // while actually being a stale fetch.
+  // That second trigger is now rare rather than routine. It used to fire every
+  // time the "simulating active user" dropdown moved; with the zone coming
+  // from the browser it's known synchronously on the very first render, so the
+  // initial fetch already asks for the right day and nothing changes after.
+  //
+  // It's kept because the fallback chain above can still resolve twice: if
+  // BROWSER_TIMEZONE is null, viewerTimezone starts at 'UTC' and becomes the
+  // logged-in member's stored zone once `members` arrives. The meetings
+  // request is scoped to a window built from viewerTimezone (see
+  // refreshAllData), so without this dep that fetch would stay on UTC's day
+  // until the next poll (~15s) - which reads as "meetings are missing or
+  // duplicated" while actually being a stale fetch.
   //
   // refreshAllData is deliberately NOT in the dep array: it's redefined every
   // render, so including it would refetch in a loop. The values it closes over
@@ -292,7 +332,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerId, setViewer, viewerMember, viewerTimezone, now }}>
+    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerTimezone, browserTimezone: BROWSER_TIMEZONE, now }}>
       {children}
     </TeamContext.Provider>
   );

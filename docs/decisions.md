@@ -24,6 +24,125 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — Retire viewerId (8/7)
+The last pre-auth leftover. Not a deletion: `viewerId` owned the grid's ONLY
+timezone source, so this was a replacement, and the test of whether it was a
+clean one was whether the two consumers downstream (ScheduleGrid,
+TeamHoursPanel) needed edits. They didn't - only their labels and comments did.
+
+`viewerTimezone` now resolves browser -> logged-in member's stored zone ->
+`'UTC'`. `viewerId` / `setViewer` / `viewerMember` are gone from TeamContext
+and TeamContextType. The "Simulating Active User" dropdown is replaced by a
+static identity block: initials avatar, name, live clock, zone.
+
+The browser lookup is module-level (`BROWSER_TIMEZONE`), since the OS zone
+can't change while the tab is open and re-deriving per render could only ever
+produce the same answer. Accepted consequence: someone who changes their OS
+zone mid-session sees a stale grid until reload.
+
+Added `browserTimezone` to the context alongside `viewerTimezone`, for one
+narrow reason - it's what lets the UI say "(this device)" honestly. When the
+two are equal the browser won; when they differ a fallback did, and captioning
+that as the device's zone would be a lie.
+
+Two latent oddities died with the dropdown. The old fallback was
+`members.find(...) || members[0]`, so before you ever touched the picker the
+grid rendered in whatever zone the FIRST MEMBER IN THE API RESPONSE happened to
+have - not yours, not anyone's deliberately. And the `[viewerTimezone]` refetch
+dep, which existed because switching the dropdown changed the meetings window,
+now fires at most once (the browser zone is known synchronously on first
+render). Kept anyway: the fallback chain can still resolve twice if
+`BROWSER_TIMEZONE` is null.
+
+### DECISION: mismatch is NAMED, not linked (8/7)
+The design called for "Profile says Chicago — update?" linking to the profile
+page. Building it surfaced that THERE IS NO SELF-SERVICE TIMEZONE EDITOR -
+`timezone` is only editable by an admin from TeamMemberCard on `/admin/manage`,
+and `/profile/hours` never touches it. So the link had nowhere honest to point.
+
+Chose: show the mismatch, no link, wording role-aware ("ask an admin to update
+it" / "update it in Manage"). Rejected adding a self-service timezone field,
+which is a real feature - changing your stored zone changes when teammates see
+you as working - and deserves its own decision rather than a drive-by.
+
+Note for anyone revisiting: for a MEMBER, a link would have changed nothing.
+They can't edit their own zone either way. The link would only ever have been
+useful to admins.
+
+`(this device)` is shown ONLY alongside a mismatch. It's a contrast - it makes
+the amber line read as two different facts rather than a contradiction - and
+with nothing to contrast against it answers a question nobody asked, while
+being the sole cause of the line overflowing its column.
+
+VERIFIED 8/7 (Tim, browser QA): identity block renders with and without a
+mismatch; a chillguy/Sydney profile against a Chicago device showed the amber
+line while the grid correctly stayed on Chicago; roster rows continue to show
+each member's own stored zone. `tsc --noEmit` and `eslint` clean on all touched
+files.
+
+KNOWN, NOT FROM THIS WORK: `npm run lint` reports one pre-existing error in
+`Button.tsx` (`buttonClasses` exported alongside a component trips
+`react-refresh/only-export-components`), introduced by the 8/7 design pass.
+
+### DECISION: viewer timezone source (8/7)
+Settled the open question left over from the 8/3 plan: what happens when the
+logged-in member's STORED timezone disagrees with the BROWSER's.
+
+ANSWER: the browser wins for viewing, the stored zone stays the schedule
+identity and is never auto-synced, and the identity block NAMES the
+disagreement instead of hiding or arbitrating it.
+
+THE REFRAME that produced this: "the viewer's timezone" is two different
+fields that got conflated, and when they disagree both are correct about
+different things.
+- STORED zone = schedule identity. It resolves the member's standing 9-5 and
+  it's what every OTHER person's screen uses to decide whether they're on
+  shift. If this followed the browser, flying to Tokyo would silently retime
+  a member's working hours for the whole team - their "9-5" becomes 9-5 Tokyo
+  and colleagues see them on shift in the middle of their night. Travel must
+  not rewrite a schedule.
+- BROWSER zone = the clock on the viewer's wall right now. That's what the
+  grid needs, since converting other people's hours onto the clock you're
+  actually reading is the grid's entire job.
+
+WHY BROWSER WINS FOR VIEWING - the same principle the heartbeat already
+established: evidence beats a stale claim. The OS knows where the machine is;
+the stored zone is something someone typed once, possibly an admin, possibly
+months ago. Phase 1 decided a live heartbeat outranks a stored status for
+exactly this reason, and this is that argument in a different costume.
+
+CONSEQUENCE FOR MeetingPanel, which the original open question missed:
+`viewerTimezone` is also the input to the one place a wall clock becomes an
+instant (`dayjs.tz(date + time, viewerTimezone)`). If someone in Tokyo reads a
+Tokyo-labelled grid and books "2pm," they mean 2pm Tokyo - otherwise the
+meeting lands in a different column from the one they clicked. The grid and
+the booking form MUST share one value, and it has to be the zone the grid is
+visibly labelled with. This makes browser-wins not just preferable but forced.
+
+REJECTED - prompt the viewer to choose (the first instinct, and the trip case
+behind it is real). Three problems. The answer needs somewhere to live, and
+in-memory means re-asking on every reload - the FirstRunHoursGate known issue
+repeating itself - while localStorage or a new field is real persistence
+machinery for a preference set once and forgotten. It's also a modal on a
+dashboard whose stated constraint is reading availability in under two
+seconds. Worst, it frames the disagreement as a CHOICE when it's usually a
+DEFECT: a stale record after a move, an admin's typo at member creation, a
+machine with a misconfigured OS clock. "Use browser this time" fixes nothing,
+so it asks forever.
+
+REJECTED - browser wins silently. Simpler, but a stale stored record then
+never surfaces to the one person who can correct it, and a wrong stored zone
+misreports that member's shift to everyone else indefinitely.
+
+REJECTED - stored wins (the original 2a). Consistent with how every other
+member's hours resolve, but it makes the grid wrong precisely while
+travelling, which is when cross-timezone reading matters most.
+
+IMPLEMENTATION NOTE: compare IANA zone STRINGS, never offsets. Two different
+zones can share an offset, and one zone changes its own offset twice a year -
+an offset comparison would flash a false "disagreement" at every DST
+changeover.
+
 ## COMPLETED — Design pass: visual system (8/7)
 Scoped as "button colors and card polish." Became a real design system, because
 the first look at the palette found that violet was the primary button colour

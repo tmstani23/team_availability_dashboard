@@ -105,12 +105,17 @@ export interface TeamContextType {
   deleteMember: (id: string) => Promise<void>;
   refreshAllData: () => Promise<void>;
   handleMemberAdded: () => void;
-  viewerId: string | null;
-  setViewer: (id: string) => void;
-  // undefined while members are still loading, or if viewerId points at a
-  // member who has since been deleted.
-  viewerMember: TeamMember | undefined;
+  // The zone every wall-clock conversion in the UI runs through: the grid's
+  // rendering AND MeetingPanel's booking form, which must agree or a meeting
+  // lands in a different column from the one that was clicked. Sourced from
+  // the browser, falling back to the logged-in member's stored zone and then
+  // 'UTC' - see the comment on it in TeamContext for why the browser wins.
   viewerTimezone: string;
+  // What the browser actually reported, or null if it couldn't be read. Only
+  // reason this is separate: it lets the UI say "this device" honestly. When
+  // it equals viewerTimezone the browser won; when it doesn't, a fallback did,
+  // and captioning that as the device's zone would be a lie.
+  browserTimezone: string | null;
 }
 
 export interface AuthContextType {
