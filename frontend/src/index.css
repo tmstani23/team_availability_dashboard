@@ -137,13 +137,120 @@ h1, h2, h3, h4 {
   font-variant-numeric: tabular-nums;
 }
 
-/* The native date/time picker's calendar and clock glyphs are a fixed dark
-   grey that disappears against our inputs. There's no standard property for
-   them, so this inverts the glyph to near-white; it's a vendor-prefixed
-   pseudo-element, hence the isolated rule. Chromium only - Firefox draws its
-   own picker button and ignores this harmlessly. */
-input[type='date']::-webkit-calendar-picker-indicator,
-input[type='time']::-webkit-calendar-picker-indicator {
-  filter: invert(0.75);
-  cursor: pointer;
+/* REMOVED 8/8: the ::-webkit-calendar-picker-indicator rule that lightened the
+   native calendar and clock glyphs. It applied to <input type="date"> and
+   <input type="time">, and there are none left in the app - both became
+   themed <select>s (see below, and utils/timeOptions.ts). Noted rather than
+   silently deleted because the rule looks like something you'd want back the
+   moment anyone adds a date input, and it isn't: the reason those inputs went
+   away is that the rest of their chrome could never be styled at all. */
+
+/* ---------------------------------------------------------------------------
+   THEMED SELECTS
+
+   The FIELD of a <select> was always ours to style. The POPUP was not: on the
+   legacy rendering it's browser chrome living outside the page, which is why
+   our dark bordered fields dropped a stark black panel with a system-grey
+   highlight row and square corners - nothing about it related to the app.
+
+   `appearance: base-select` (Chromium 135+) opts the control AND its picker
+   into ordinary CSS, so `::picker(select)` and the <option>s inside become
+   normal styleable boxes. Everything below is wrapped in @supports, so
+   browsers without it keep the fully-native control they render today rather
+   than a half-styled hybrid.
+
+   `appearance: none` on the base rule is what removes the OS arrow so the
+   component can draw its own chevron; under base-select the control renders
+   `::picker-icon` instead, so the component's overlay chevron is hidden and
+   that one is styled instead. Otherwise there'd be two arrows.
+   --------------------------------------------------------------------------- */
+.select-themed {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+@supports (appearance: base-select) {
+  .select-themed,
+  .select-themed::picker(select) {
+    appearance: base-select;
+  }
+
+  /* The component's own chevron. base-select draws ::picker-icon, so without
+     this the two stack on top of each other. */
+  .select-themed-chevron {
+    display: none;
+  }
+
+  .select-themed::picker-icon {
+    color: var(--color-ink-faint);
+    transition: transform 150ms ease, color 150ms ease;
+  }
+  .select-themed:hover::picker-icon {
+    color: var(--color-ink-muted);
+  }
+  /* :open is the select while its picker is showing - the arrow flipping is
+     the only cue that the control, rather than the page, is what changed. */
+  .select-themed:open::picker-icon {
+    transform: rotate(180deg);
+    color: var(--color-brand-hover);
+  }
+
+  /* The popup itself. `surface` rather than `card`, one step back from the
+     field it drops from - a popup reading as MORE recessed than its trigger
+     is what makes it feel attached to it rather than pasted over the page. */
+  .select-themed::picker(select) {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line-strong);
+    border-radius: 10px;
+    padding: 4px;
+    margin-top: 4px;
+    box-shadow: 0 12px 28px rgb(0 0 0 / 0.45);
+    max-height: 18rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .select-themed option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    color: var(--color-ink-muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+
+  .select-themed option:hover,
+  .select-themed option:focus {
+    background: var(--color-card);
+    color: var(--color-ink);
+    outline: none;
+  }
+
+  /* Brand, because "this is the one you picked" is interaction state, not
+     schedule data - the same rule that keeps sage and rose off every control. */
+  .select-themed option:checked {
+    background: var(--color-brand);
+    color: #fff;
+  }
+
+  /* base-select adds a checkmark column to every option. The highlighted fill
+     already says which is selected, and the extra column indents all 24 labels
+     to make room for a glyph that appears once. */
+  .select-themed option::checkmark {
+    display: none;
+  }
+
+  /* Group headers ("Morning", "Afternoon"). Not selectable, so they read as
+     structure rather than as options that happen to do nothing. */
+  .select-themed optgroup {
+    padding: 6px 10px 2px;
+    color: var(--color-ink-faint);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
 }

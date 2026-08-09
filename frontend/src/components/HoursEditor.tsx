@@ -6,7 +6,7 @@ import type { DayOfWeek, RecurringShift } from '../types';
 import { homePathForRole } from '../utils/routes';
 import { API_BASE } from '../config';
 import Button from './Button';
-import { inputClasses } from '../utils/ui';
+import TimeSelect from './TimeSelect';
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -473,8 +473,30 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   : 'bg-card border-line'
               }`}
             >
-              <div className="flex items-center gap-4">
-                <div className="w-28 text-white font-medium text-sm">
+              {/* flex-wrap, and every child either fixed-width or shrink-0.
+                  Without the wrap this row has no way to give: the two time
+                  inputs have an intrinsic minimum they won't go below, so a
+                  narrow window pushed the end time past the card's right edge
+                  instead of reflowing.
+
+                  shrink-0 on the day label is what keeps the rows ALIGNED with
+                  each other. w-28 alone set a starting width the label could
+                  still be shrunk below, and how much each row shrank depended
+                  on how long its day name was - which is why "Wednesday" and
+                  "Thursday" sat further right than "Monday". */}
+              {/* flex-wrap, and every child either fixed-width or shrink-0.
+                  Without the wrap this row has no way to give: the two time
+                  inputs have an intrinsic minimum they won't go below, so a
+                  narrow window pushed the end time past the card's right edge
+                  instead of reflowing.
+
+                  shrink-0 on the day label is what keeps the rows ALIGNED with
+                  each other. w-24 alone set a starting width the label could
+                  still be shrunk below, and how much each row shrank depended
+                  on how long its day name was - which is why "Wednesday" and
+                  "Thursday" sat further right than "Monday". */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="w-24 shrink-0 text-white font-medium text-sm">
                   {DAY_LABELS[day]}
                   {isTargetToday && (
                     <div className="text-[10px] font-normal text-brand-hover whitespace-nowrap">
@@ -483,7 +505,7 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   )}
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-ink">
+                <label className="flex items-center gap-2 text-sm text-ink shrink-0">
                   <input
                     type="checkbox"
                     checked={entry.isOff}
@@ -492,21 +514,34 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   Off
                 </label>
 
-                <input
-                  type="time"
-                  className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
-                  value={entry.startTime}
-                  disabled={entry.isOff}
-                  onChange={e => updateDay(day, { startTime: e.target.value })}
-                />
-                <span className="text-ink-faint">-</span>
-                <input
-                  type="time"
-                  className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
-                  value={entry.endTime}
-                  disabled={entry.isOff}
-                  onChange={e => updateDay(day, { endTime: e.target.value })}
-                />
+                {/* The start/end pair is ONE wrapping unit, not three loose
+                    siblings. Left as siblings they wrap independently, so a
+                    narrow window dropped just the end time onto its own line
+                    at the far left - the two halves of a single range sitting
+                    on different rows, which reads worse than the overflow it
+                    replaced. */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* HOUR granularity, no minute field. The validation below
+                      (and shiftValidation.ts on the server) requires shift
+                      boundaries to land on the hour, because ScheduleGrid
+                      lights whole hour cells. Offering minutes here would put
+                      three guaranteed save-errors in the dropdown. */}
+                  <TimeSelect
+                    value={entry.startTime}
+                    disabled={entry.isOff}
+                    granularity="hour"
+                    onChange={value => updateDay(day, { startTime: value })}
+                    label={`${DAY_LABELS[day]} start time`}
+                  />
+                  <span className="text-ink-faint shrink-0">-</span>
+                  <TimeSelect
+                    value={entry.endTime}
+                    disabled={entry.isOff}
+                    granularity="hour"
+                    onChange={value => updateDay(day, { endTime: value })}
+                    label={`${DAY_LABELS[day]} end time`}
+                  />
+                </div>
               </div>
 
               {/* Break row. Hidden entirely on off days rather than just
@@ -514,10 +549,13 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                   incoherent, and the API rejects it, so offering the control
                   would be offering a dead end. */}
               {!entry.isOff && (
-                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-line/40">
-                  <div className="w-28" />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-2 pt-2 border-t border-line/40">
+                  {/* Empty spacer matching the day label above, so the Lunch
+                      checkbox lines up under the Off checkbox. shrink-0 for
+                      the same reason it's there on the label. */}
+                  <div className="w-24 shrink-0" />
 
-                  <label className="flex items-center gap-2 text-sm text-ink-muted">
+                  <label className="flex items-center gap-2 text-sm text-ink-muted shrink-0">
                     <input
                       type="checkbox"
                       checked={entry.hasBreak}
@@ -526,23 +564,22 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
                     Lunch
                   </label>
 
-                  <input
-                    type="time"
-                    step={900}
-                    className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
-                    value={entry.breakStart}
-                    disabled={!entry.hasBreak}
-                    onChange={e => updateDay(day, { breakStart: e.target.value })}
-                  />
-                  <span className="text-ink-faint">-</span>
-                  <input
-                    type="time"
-                    step={900}
-                    className={inputClasses('sm', 'px-2 py-1 disabled:opacity-40')}
-                    value={entry.breakEnd}
-                    disabled={!entry.hasBreak}
-                    onChange={e => updateDay(day, { breakEnd: e.target.value })}
-                  />
+                  {/* Grouped as one wrapping unit, same as the shift row. */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <TimeSelect
+                      value={entry.breakStart}
+                      disabled={!entry.hasBreak}
+                      onChange={value => updateDay(day, { breakStart: value })}
+                      label={`${DAY_LABELS[day]} lunch start`}
+                    />
+                    <span className="text-ink-faint shrink-0">-</span>
+                    <TimeSelect
+                      value={entry.breakEnd}
+                      disabled={!entry.hasBreak}
+                      onChange={value => updateDay(day, { breakEnd: value })}
+                      label={`${DAY_LABELS[day]} lunch end`}
+                    />
+                  </div>
                 </div>
               )}
             </div>

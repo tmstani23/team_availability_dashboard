@@ -7,6 +7,7 @@ import {
   meetingsForMember,
   isMeetingInProgress,
   formatTimezoneLabel,
+  formatWallClock,
 } from '../utils/scheduleTime';
 import { STATUS_META, SETTABLE_STATUSES, resolveDisplayStatus } from '../utils/status';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
@@ -67,10 +68,13 @@ const TeamStatusSidebar = () => {
   const getLocalTime = (tz: string) => {
     const zone = formatTimezoneLabel(tz);
     try {
-      const clock = now.tz(tz).format('hh:mm A');
+      // h:mm, not hh:mm - "2:41 PM" rather than "02:41 PM". The leading zero
+      // was only ever buying column stability, and .tnum on the element
+      // already does that by making every digit the same width.
+      const clock = now.tz(tz).format('h:mm A');
       return zone ? `${clock} · ${zone}` : clock;
     } catch {
-      return now.format('hh:mm A');
+      return now.format('h:mm A');
     }
   };
 
@@ -79,7 +83,12 @@ const TeamStatusSidebar = () => {
     // h-full stretches it to match ScheduleGrid's height (flex row default
     // align-items: stretch). Back to sole occupant of this column now that
     // TeamHoursPanel has moved to the main column above ScheduleGrid.
-    <div className="w-full h-full bg-surface border-l border-line text-white p-6 box-border overflow-y-auto">
+    // The divider follows the layout: a TOP border when this sits stacked
+    // under the grid, a LEFT border once it's the right-hand column. A left
+    // border on a stacked block draws a stray vertical line down the page.
+    // overflow-y-auto only applies once it's a column - when stacked it's in
+    // the normal page flow and an inner scroll area would trap the scroll.
+    <div className="w-full lg:h-full bg-surface border-t lg:border-t-0 lg:border-l border-line text-white p-6 box-border lg:overflow-y-auto">
       {/* IDENTITY BLOCK - replaced the "Simulating Active User" dropdown.
           Not simply a deletion: this corner answers "whose clock is this grid
           in?", and the grid stays timezone-converted after the picker goes, so
@@ -227,7 +236,11 @@ const TeamStatusSidebar = () => {
                       for that case lands with the first-run gate (nextSteps). */}
                   {resolution.state === 'working' && (
                     <div className="text-xs text-ink-faint tnum">
-                      Working {resolution.startTime}–{resolution.endTime}
+                      {/* formatWallClock is a RENDER-EDGE formatter - resolution
+                          still holds the stored 24-hour strings, and nothing
+                          here writes them back, so the "HH:mm" contract with the
+                          API is untouched. */}
+                      Working {formatWallClock(resolution.startTime)}–{formatWallClock(resolution.endTime)}
                     </div>
                   )}
                   {resolution.state === 'off' && (

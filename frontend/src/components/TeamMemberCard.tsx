@@ -13,8 +13,8 @@ import {
   isMeetingInProgress,
 } from '../utils/scheduleTime';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
-import { inputClasses } from '../utils/ui';
-import Button, { buttonClasses } from './Button';
+import { inputClasses, buttonClasses } from '../utils/ui';
+import Button from './Button';
 import { API_BASE } from '../config';
 
 dayjs.extend(utc);
@@ -275,7 +275,7 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
                 ticks with the poll instead of freezing at first render - the
                 same fix the sidebar clock got. tnum keeps the digits
                 fixed-width so the line doesn't shuffle as the minute rolls. */}
-            <p className="tnum"><span className="text-ink-muted">Current Local Time:</span> {now.tz(member.timezone).format('hh:mm A')}</p>
+            <p className="tnum"><span className="text-ink-muted">Current Local Time:</span> {now.tz(member.timezone).format('h:mm A')}</p>
           </div>
 
           <div className="flex flex-wrap gap-2 mt-3">

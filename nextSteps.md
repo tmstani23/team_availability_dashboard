@@ -1,39 +1,46 @@
 # Next Steps
 
-Last updated: 2026-08-07
+Last updated: 2026-08-08
 
 ## START HERE NEXT SESSION
-Phases 0-3 are committed and browser-verified. So are the doc split + sidebar
-timezone label, the DESIGN PASS, and the viewerId RETIREMENT - all tested 8/7,
-see `docs/decisions.md`.
 
-THE ROADMAP'S FEATURE WORK IS DONE, so is the visual system, and so is the
-last pre-auth leftover. Everything remaining is polish, one new feature, and
-deploy:
+THE ROADMAP IS DOWN TO DEPLOY. Items 1-3 (12-hour clock, timezone preview,
+responsive/mobile) all landed 8/8 and are browser-verified - see
+`docs/decisions.md`. So is the select rework and the `wallClockToInstant`
+extraction. Lint is clean for the first time since the 8/7 design pass.
 
-1. 12-HOUR CLOCK sweep. START HERE - small, self-contained, and mostly one
-   line in ScheduleGrid's column headers (`{hour}:00` -> `formatHourLabel`).
-   Ordered first because both (2) and (3) touch the grid, and working against
-   final labels beats working against labels about to change.
-2. TIMEZONE PREVIEW. A control that previews a ZONE, not a person. The design
-   is settled - see `### DECISION: timezone PREVIEW` below, and read it before
-   starting; it has a display-zone / write-zone split that isn't optional.
-   This replaces what the retired dropdown was genuinely useful for (demoing
-   cross-timezone behaviour) without reintroducing impersonation.
-3. RESPONSIVE / MOBILE, demo-surface scope. Bigger than it first looked - the
-   grid is effectively invisible at narrow widths, so this needs structural
-   work and not just breakpoints. Two concrete suspects are already written
-   up under the item. The expensive question (what the grid IS on a phone) is
-   explicitly deferred.
-4. DEPLOY to Render + Atlas. Research is in `docs/decisions.md`; possible any
-   time since Phase 0. Deliberately last, since deploy is when a real second
-   person gets involved.
+What's left, in no forced order:
 
-NOT BLOCKING, but the next person to touch it will trip over it: `npm run
-lint` reports one error in `Button.tsx` - `buttonClasses` exported alongside a
-component trips `react-refresh/only-export-components`. Pre-existing from the
-8/7 design pass. The fix is moving `buttonClasses` to its own module and
-updating call sites.
+1. DEPLOY to Render + Atlas. The only remaining item from the original
+   roadmap. Research is in `docs/decisions.md`; possible any time since Phase
+   0. Left last because deploy is when a real second person gets involved.
+2. SCHEDULE IDENTITY IS SELF-OWNED - design settled, not built. See the
+   DECISION block below. Moves timezone editing out of admin-only and into
+   `/profile/hours`, which is what lets the sidebar's mismatch hint become a
+   link instead of a shrug. Touches auth boundaries and probably a route
+   rename, so give it its own session and a higher model.
+3. JSDOM + REACT TESTING LIBRARY - design settled, not built. See the DECISION
+   block below. Four tests, not coverage. Mostly config wiring once the
+   thinking is read, so a lower model is fine.
+
+(2) and (3) are independent of each other and of deploy. (3) is the one that
+protects work already done: nothing currently stops a refactor from swapping
+`viewerTimezone` for `displayTimezone` in MeetingPanel, and every one of the
+130 tests would still pass while meetings booked in the wrong zone.
+
+QA STATUS 8/8 (Tim, browser): 12-hour labels throughout; the grid reachable and
+scrollable at narrow widths with the name column pinned; sidebar stacking; the
+hours editor aligned and not overflowing. The preview was tested against the
+split end to end - previewing Tokyo from Chicago, a meeting booked at "8:00 PM"
+listed as 8:00 PM (viewer's clock), drew at 10AM on the Tokyo grid, and moved
+to 8PM on switching back. `npm run test:run` green (130), lint clean.
+
+STILL NOT COVERED BY QA, carried forward: a non-admin trying to delete someone
+else's meeting (should get the organizer-or-admin message, not a row that
+vanishes and reappears), and a meeting booked across the viewer's local
+midnight (should draw only the part falling on today). New on 8/8: the
+base-select popup styling has only been seen in Chromium - the `@supports`
+fallback path (Firefox, Safari) is reasoned about but unverified.
 
 QA status as of 8/3 - Phase 3, all by hand: meeting drawing + "In a meeting"
 pill, the same meeting moving 17:00 (Chicago) -> 07:00 (Tokyo) on a viewer
@@ -49,18 +56,12 @@ spacing, derived "At lunch"/"Offline" statuses, and the admin hours editor's
 timezone panel against a Sydney member from Chicago (+15h, cross-date warning
 firing correctly).
 
-NOT COVERED BY ANY QA SO FAR, worth a look sometime: a non-admin trying to
-delete someone else's meeting (should get the organizer-or-admin message, not
-a row that vanishes and reappears), and a meeting booked across the viewer's
-local midnight (should draw only the part falling on today).
-
-Still deliberately NOT done: component or backend test coverage. The three
-bugs found on 8/2 (status rollback writing undefined, the hours-editor fetch
-race, the state bleed between members) all lived in the seam between React
-state and the network, which is exactly what the pure-function tests
-structurally cannot reach. Phase 3 added more of that seam - MeetingPanel's
-form, the create/delete round trips - so this got slightly more valuable.
-Tracked in the test roadmap below.
+Still NOT done: component or backend test coverage. The three bugs found on 8/2
+(status rollback writing undefined, the hours-editor fetch race, the state
+bleed between members) all lived in the seam between React state and the
+network, which is exactly what the pure-function tests structurally cannot
+reach. No longer "deliberately" - as of 8/8 it has a plan and a scope, see
+`### DECISION: add jsdom + React Testing Library`.
 
 ## WHERE THE HISTORY WENT
 
@@ -77,160 +78,129 @@ stored status default is `away`. New entries get appended there, not here.
 
 ## NEXT STEPS (priority order)
 
-Phases 1-3 (polling + heartbeat, recurring lunch, meetings) and the Phase 3
-addon (the sidebar timezone label) are all DONE. Their briefs are in
-docs/phases/ and what actually landed is in `docs/decisions.md` - the
-at-a-glance summaries that used to sit here were describing finished work.
+Phases 1-3 (polling + heartbeat, recurring lunch, meetings), the Phase 3 addon
+(the sidebar timezone label), and roadmap items 1-3 (12-hour clock, timezone
+preview, responsive) are all DONE. Phase briefs are in docs/phases/ and what
+actually landed is in `docs/decisions.md` - the at-a-glance summaries that used
+to sit here were describing finished work.
 
-What remains is below, in order.
+Two DECISION blocks below are DESIGN ONLY - settled, not built. They live here
+rather than in `docs/decisions.md` because they're inputs to work that hasn't
+happened yet; they move across with the COMPLETED entry they produce. The
+timezone-preview block that used to sit here made exactly that trip on 8/8.
 
-### DECISION: timezone PREVIEW, not user simulation (8/7, design only)
+What remains is below.
 
-Raised while testing the viewerId retirement: with the dropdown gone, demoing
-cross-timezone behaviour needs DevTools, which is fine for QA and useless for
-showing the app to a person.
+### DECISION: add jsdom + React Testing Library (8/8, design only)
 
-FIRST PROPOSAL, rejected: an admin-only "debug mode" restoring the old
-simulate-as-user dropdown. Two problems.
-- It would TEST THE WRONG PATH. The old dropdown was load-bearing - it WAS the
-  zone source, so QA through it exercised the real thing. A debug override
-  SHADOWS the real source, so testing through it would never exercise
-  browser-sourcing, the fallback chain, or mismatch detection - precisely the
-  new code. It'd give confidence about the debug path while the shipping path
-  went unverified.
-- "Doesn't change any logic" isn't reachable. `viewerTimezone` feeds four
-  consumers: ScheduleGrid, TeamHoursPanel, MeetingPanel's wall-clock ->
-  instant conversion, and the meetings FETCH WINDOW. Overriding it overrides
-  all four, so debug mode could book a real meeting interpreted through the
-  simulated user's zone. Making it view-only means splitting display-zone from
-  write-zone, which IS a logic change, in the exact spot this decision block
-  called forced.
+The test roadmap at the bottom of this file has listed frontend component tests
+as "planned" since 7/20. This is the argument for actually doing it, and the
+scope when someone does.
 
-ANSWER: a control that previews a ZONE, not a PERSON. "Show this grid in
-Berlin" implies nothing about identity, so none of the 7/18 impersonation
-reasoning applies - that objection was specifically that acting AS someone
-implies an authority auth forbids.
+THE CASE, and it's already written down: every bug this project has found in QA
+lived in the seam between React state and the network - the status rollback
+writing `undefined`, the hours-editor fetch race, the state bleed between
+members (all 8/2). Pure-function tests structurally cannot reach that seam.
+The suite is 130 green tests that would not have caught a single one of them.
 
-Better on several axes at once: no admin gate needed (it isn't privileged -
-every member's timezone is already in the GET /team-members response), no
-impersonation problem, and it's arguably a real FEATURE rather than debug
-scaffolding, since "what does my team's day look like in Berlin before I
-schedule this?" is a question a user of an availability dashboard actually
-has. It still demos exactly what's wanted: picking Tokyo shows the same grid
-the Tokyo employee sees.
+THE SHARPER REASON, new on 8/8: the timezone preview introduced a DISPLAY /
+WRITE split (see the preview DECISION above). `wallClockToInstant` is now
+tested and pins that the same wall clock in two zones yields two different
+instants - but no test can assert that MeetingPanel passes `viewerTimezone`
+rather than `displayTimezone`. That is a CALL-SITE invariant. Someone
+refactoring for consistency swaps one identifier, all 130 tests still pass, and
+every meeting starts booking in the previewed zone. The invariant this session
+was built around is the one thing the current suite cannot hold.
 
-THE IRREDUCIBLE COST, either way: display-zone and write-zone must separate.
-Sketch - a `previewTimezone` defaulting to null, consulted ONLY by
-ScheduleGrid and TeamHoursPanel as `previewTimezone ?? viewerTimezone`.
-MeetingPanel and the meetings fetch window keep reading `viewerTimezone`
-unconditionally. While a preview is active the grid needs a persistent banner,
-and MeetingPanel either disables or states plainly that it books in your real
-zone. Without that separation someone previews Tokyo, books "2pm", and it
-lands at 2pm Chicago.
+SCOPE, deliberately four tests rather than coverage:
+  1. MeetingPanel books in the viewer's zone while a preview is active
+     (previewTimezone Tokyo + viewerTimezone Chicago, submit 2PM, assert
+     createMeeting got 19:00:00.000Z). The one that matters.
+  2. ScheduleGrid DOES follow the preview - the other half, so the split is
+     pinned from both sides.
+  3. TimeSelect round-trip: hour + minute emit "08:30"; granularity="hour"
+     can never emit a non-:00 minute.
+  4. Status optimistic rollback: a failed PATCH restores the previous status.
+     The exact 8/2 bug.
 
-OPEN: whether preview should persist across reloads. Leaning no - it's a
-transient "let me look at" action, and in-memory sidesteps the persistence
-machinery the viewer-timezone DECISION already rejected for the same reason.
+COST: jsdom, @testing-library/react, @testing-library/user-event,
+@testing-library/jest-dom, plus `environment: 'jsdom'` and a setup file in the
+Vite config. The real work isn't the tests - it's a `renderWithProviders`
+helper, since all four components read useTeam()/useAuth() and need a fake
+context injected. One small reusable file.
 
-### 1 — 12-HOUR CLOCK EVERYWHERE (small, self-contained)
+WHAT IT DOESN'T BUY, so nobody expects it to: jsdom has no rendering engine, so
+layout, the sticky column and the base-select popup stay manual. The DevTools
+Sensors timezone QA also stays manual and MUST - `renderWithProviders` injects
+a fake context, so it deliberately bypasses BROWSER_TIMEZONE and the whole
+fallback chain, which is exactly the path Sensors exercises.
 
-Raised 8/7. ORDERED FIRST because it's cheap and because every later pass
-benefits from it landing before they start: (2) adds a zone-preview banner and
-(3) reflows the grid, and both are easier against final labels than against
-labels that are about to change. "6AM" is also narrower than "6:00", which
-buys real horizontal room for the responsive work.
+NOTE for whoever writes them: query by role and accessible name, never by
+markup structure - component tests are the ones that rot. ThemedSelect and
+TimeSelect were given aria-labels on 8/8 partly for this.
 
-`formatHourLabel` already gives "9AM"/"5PM", but ONLY for the in-cell shift
-start/end labels - it is not used for the column headers. The roster/card
-clocks use `hh:mm A`. The inventory of what actually still renders 24-hour:
+ALSO NOTE: `BROWSER_TIMEZONE` is read once at module load in TeamContext, so
+unit-testing the fallback chain directly needs the TZ env var set before the
+process starts, not per-test. Fine for the four above; a trap for anyone going
+further without refactoring that constant first.
 
-- **ScheduleGrid's column headers**, line ~105: `{hour}:00`, giving
-  "6:00 … 23:00" across all 24 columns. The most visible 24-hour surface in
-  the app and a one-line fix - `formatHourLabel(hour)` already returns exactly
-  the right thing and is already imported in that file.
-- **TeamStatusSidebar, the `Working {startTime}–{endTime}` line.** The only
-  place raw stored `HH:mm` reaches the screen ("Working 09:00–21:00").
-- HoursEditor's two validation strings ("times must be HH:mm (e.g. 09:00)").
-  These describe the STORAGE format, so they may be correct as-is - decide
-  rather than reflexively changing them.
-- Minor, decide while in there: the clocks use `hh:mm A`, which renders
-  "02:41 PM" with a leading zero. `h:mm A` gives "2:41 PM". `.tnum` already
-  holds the digits fixed-width, so the leading zero isn't buying stability.
+### DECISION: schedule identity is self-owned (8/8, design only)
 
-DO NOT touch the `<input type="time">` fields in HoursEditor and MeetingPanel.
-Those are locale-driven - Chrome on a US machine already draws them 12-hour
-with an AM/PM spinner. Forcing the format means replacing them with text
-inputs and hand-rolling AM/PM parsing, trading a free picker and free
-validation for a new class of bug.
+Raised while asking a blunter question: why does `/profile/hours` exist at all
+if an admin can already edit anyone's hours? Isn't one of them redundant?
 
-THE TRAP, and the only part with real risk: storage stays 24-hour.
-`RecurringShift.startTime` is `HH:mm` and the backend validates that shape, so
-a formatted string must never travel back into component state or up to the
-API. This is display-only, applied at the render edge.
+They're not - admin-edit covers onboarding someone who has never logged in
+(unset hours are the whole reason FirstRunHoursGate exists) and fixing someone
+who's unreachable. One `HoursEditor` with a `mode: 'self' | 'admin'` flag
+serves both against one self-or-admin route, so there's no duplicated
+implementation either.
 
-SHAPE: a `formatWallClock(hhmm)` in `scheduleTime.ts` beside `formatHourLabel`,
-with cases added to `scheduleTime.test.ts`. It has to be its own function
-rather than reusing `formatHourLabel` because `HourRange` carries no minutes -
-which is exactly why the existing formatter can't cover this case.
+But the question exposed something real. The THREE fields that all answer
+"when am I available" have three different permission rules, and no principle
+connecting them:
 
-### 2 — BUILD THE TIMEZONE PREVIEW
+  - `status`   - self only. An admin cannot set yours.
+  - `hours`    - self OR admin.
+  - `timezone` - ADMIN ONLY. There is no self-service editor at all.
 
-Implements the `### DECISION: timezone PREVIEW, not user simulation` block
-above - read it first, the shape and the rejected alternatives are all there.
+Nobody chose that spread; it accumulated. Timezone ended up admin-only because
+it arrived as part of the member PROFILE (name / role / timezone on
+TeamMemberCard), not because anyone decided a person shouldn't own their own
+zone - and it's the one with the worst consequence, since a stale timezone
+misreports someone to the entire team until an admin notices.
 
-Short version: a `previewTimezone` (default null) consulted ONLY by
-ScheduleGrid and TeamHoursPanel as `previewTimezone ?? viewerTimezone`.
-MeetingPanel and the meetings fetch window keep reading `viewerTimezone`
-unconditionally, so a preview can never reinterpret a write. Banner on the
-grid while active.
+THE PRINCIPLE, proposed: schedule identity is SELF-OWNED, and admin is an
+OVERRIDE for onboarding and absence. Status already follows it. Hours already
+follow it. Timezone is the outlier, and moving it into `/profile/hours` is what
+makes the rule true rather than mostly-true.
 
-### 3 — RESPONSIVE / MOBILE, demo-surface scope (8/7)
+WHAT THIS UNBLOCKS, and the reason it's worth doing rather than just tidy: the
+sidebar's timezone-mismatch hint currently NAMES the disagreement instead of
+offering a fix ("ask an admin to update it if that is wrong"), and the existing
+known-issues entry says outright that the hint should become a link if
+self-service is ever added. It can't link anywhere today because there is
+nothing to link to. So this is the missing half of a feature that already
+shipped, not a new one.
 
-SCOPE SETTLED UP FRONT: mobile is a DEMO surface, not a use surface. The bar
-is "someone opens this on a phone and it doesn't look broken," NOT "people
-check availability from their phones daily." That distinction is what keeps
-the hard question below deferred and horizontal scroll an acceptable answer.
+REJECTED, deleting `/profile/hours` instead: it collapses the permission
+question the wrong way. Making hours admin-only to match timezone means a
+member can't correct their own schedule, which is the opposite of where status
+already landed, and it would make FirstRunHoursGate incoherent - a gate
+prompting you to set hours you aren't allowed to set.
 
-Sizing, revised 8/7 after seeing it: bigger than the "afternoon of breakpoint
-rules" first guessed, since the grid needs structural work (below), but still
-short of a full phase - the expensive part is the deferred one.
+OPEN, for whoever builds it:
+  - Does the admin's TeamMemberCard KEEP its timezone field, or lose it? Keep
+    is the safer default (onboarding still needs it), but then two surfaces
+    write one field and they have to agree.
+  - `/profile/hours` is named for hours. Adding timezone makes it a profile
+    page wearing an hours name - worth deciding whether it becomes
+    `/profile`, with hours as one section.
+  - Changing your own timezone RETIMES you for the whole team, unlike changing
+    your own status. That asymmetry probably deserves a confirmation step or
+    at least a plain warning, which status never needed.
 
-NOT purely breakpoints - confirmed 8/7 that the grid is effectively INVISIBLE
-at narrow widths (member names render, cells can't be found), so this needs
-real component reordering, not just stacking rules.
-
-What's actually broken at narrow widths:
-- **The grid disappears.** Two suspects, both in ScheduleGrid and both
-  independently worth fixing:
-    - `mx-auto` on the row grids (`className="grid mx-auto pl-8"`), which are
-      ~1440px inside an `overflow-x-auto` container. Auto margins on an item
-      wider than its scroll container make part of the overflow UNREACHABLE
-      rather than scrollable - a known trap and the likeliest cause.
-    - The mount effect's `gridContainer.scrollLeft = 360` ("approximate scroll
-      to 8AM"). A magic number tuned to one viewport; on a narrow screen it
-      lands mid-grid with no anchor. Should scroll to `now` rather than a
-      constant, or be skipped below a width threshold.
-- The main/sidebar split never stacks, so both columns stay squeezed. Stacking
-  below `lg` is most of the rest.
-- Compare Availability pills clip their hour labels ("7AM–3P", "8PM–2A")
-  instead of wrapping.
-- MeetingPanel's header collides with its "Book a meeting" button.
-- The member-name column needs to stay visible while the hours scroll, or the
-  grid is unreadable on a phone even once it's findable. Sticky first column
-  is the obvious answer and is probably the single highest-value change here.
-
-DELIBERATELY OUT OF SCOPE, and the reason this isn't a full phase: what the
-GRID should be on a phone. It's 120px + 55px x 24 = ~1440px minimum, so a
-375px screen shows about four hours and "who's free right now" takes swiping -
-which is the one question the app exists to answer in under two seconds. Real
-answers (a "now +/- 4 hours" window, a per-member list layout, drill-down)
-are a design decision with alternatives, and they need their own brief and
-DECISION block. Under demo-surface scope, horizontal scroll is fine.
-
-WARNING for whoever picks up the deferred version: it collides head-on with
-the hardcoded-column-maths known issue below. Those inline styles were left
-alone on purpose because the overlap row depends on being pixel-aligned with
-the member rows, and any responsive grid rework has to touch exactly that.
+SESSION NOTE: this touches auth boundaries and a route rename, so it wants its
+own session rather than riding along with UI polish.
 
 ### 4 — DEPLOY to Render + Atlas
 
@@ -240,16 +210,29 @@ gets involved.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
-- `npm run lint` reports ONE error, in `Button.tsx`: `buttonClasses` is
-  exported alongside a component, which trips
-  `react-refresh/only-export-components`. Pre-existing from the 8/7 design
-  pass. The fix is moving `buttonClasses` into its own module and updating
-  call sites - deliberately not done as a drive-by during the viewerId work.
 - There is NO self-service timezone editor. `TeamMember.timezone` is only
   editable by an admin, via TeamMemberCard on `/admin/manage`; `/profile/hours`
   doesn't touch it. This is why the identity block's mismatch hint NAMES the
-  disagreement rather than linking to a fix (see `docs/decisions.md`, 8/7). If
-  self-service is ever added, that hint should become a link.
+  disagreement rather than linking to a fix (see `docs/decisions.md`, 8/7).
+  NOW HAS A PLAN, 8/8: see `### DECISION: schedule identity is self-owned`
+  above. Fixing it is what turns that hint into a link.
+- A timezone PREVIEW draws meetings from a fetch it doesn't control. The
+  meetings request is scoped to the VIEWER's local day (deliberately - a
+  display control must not change what the app requests), but ScheduleGrid
+  clamps drawing to the DISPLAY zone's day. So previewing a distant zone can
+  drop a meeting sitting at the edge of your own day. Commented at the call
+  site. Accepted rather than fixed, because the fix couples the two halves of
+  the split back together.
+- The `base-select` popup styling is CHROMIUM-ONLY so far. It's behind
+  `@supports`, so Firefox and Safari fall back to the native popup, but that
+  fallback has been reasoned about and not looked at. Worth ten minutes in
+  Firefox before showing this to anyone.
+- Shift start/end are HOUR-ONLY, breaks are quarter-hour. That's enforced in
+  three places now (`shiftValidation.ts`, HoursEditor's `handleSave`, and
+  `TimeSelect`'s `granularity` prop) and the reason is real - ScheduleGrid
+  lights whole hour cells, so a fractional shift boundary has nothing to
+  half-light. Not debt exactly, but three enforcement points for one rule is
+  worth knowing about before changing any of them.
 - `BROWSER_TIMEZONE` is read once at module load, so someone who changes their
   OS timezone with the tab open sees a stale grid until they reload. Accepted:
   the alternative is re-deriving per render for an answer that essentially
@@ -258,13 +241,18 @@ gets involved.
   reload until hours are actually set. Deliberate (non-blocking, not
   "seen once, gone forever"), but revisit if it turns out to be annoying
   in daily use - a persisted flag would be the fix.
-- Meeting carve-outs are distinguished from lunches and on-shift blocks by
-  COLOUR ALONE. Rose-on-sage survives red-green colour blindness, but the
-  accessible answer is a second, non-colour signal (the lunch carve already
-  has its quarter-hour ticks; meetings have nothing). Left out of the 8/7
-  design pass deliberately rather than half-built: it means changing
-  ScheduleCell's slice layering, which produced two subtle bugs in Phase 3
-  and deserves its own decision rather than a drive-by.
+- Meeting carve-outs are distinguished from LUNCHES by COLOUR ALONE.
+  Rose-on-sage survives red-green colour blindness, but the accessible answer
+  is a second, non-colour signal.
+  CORRECTED 8/7 - this entry used to say "the lunch carve already has its
+  quarter-hour ticks; meetings have nothing," which is wrong and would send
+  someone looking for tick code that already exists. `TICKS` in ScheduleCell
+  is drawn on ANY cell containing a carve, lunch or meeting alike. So the
+  ticks are a shared RULER, not a differentiator - which is exactly why the
+  problem stands: the two carve types render identically apart from hue.
+  Left out of the 8/7 design pass deliberately rather than half-built: it
+  means changing ScheduleCell's slice layering, which produced two subtle
+  bugs in Phase 3 and deserves its own decision rather than a drive-by.
 - Text colours are tokenised (`ink` / `ink-muted` / `ink-faint`) but the
   TYPE SCALE isn't - heading sizes are still per-component `text-2xl` /
   `text-xl` / `text-lg` picked by feel. Worth a `--text-*` set if a fourth
@@ -285,9 +273,10 @@ gets involved.
   - Integration tests for API routes (team-members, recurring-shifts,
     auth) via Supertest. NOT work-shifts - those routes are deleted in
     Phase 2.
-  - Frontend component tests (Vitest + React Testing Library) for
-    ScheduleGrid's timezone conversion - complex and easy to silently
-    break (see the 09:00-09:05 shift bug caught in manual QA)
+  - Frontend component tests (Vitest + React Testing Library) - SCOPED 8/8,
+    see `### DECISION: add jsdom + React Testing Library` above for the four
+    tests and the setup cost. ScheduleGrid's timezone conversion is one of
+    them; the display/write split is the one that matters most.
   - Not planned at this scope: E2E (Playwright/Cypress) - reasonable next
     step only if this grows past a portfolio project
 - Audit .env / secrets handling for production config (JWT_SECRET

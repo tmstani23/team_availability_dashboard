@@ -24,6 +24,208 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — Roadmap items 1-3: 12-hour clock, timezone preview, responsive (8/8)
+
+The whole remaining roadmap except deploy, in one session. Committed together
+rather than per-phase at Tim's call.
+
+**12-hour clock.** New `formatWallClock` in `scheduleTime.ts` - its own
+function rather than a reuse of `formatHourLabel` because `HourRange` carries
+no minutes, which is exactly why the existing formatter couldn't cover it.
+Applied to ScheduleGrid's column headers (the `{hour}:00` that produced
+"6:00 … 23:00" across all 24 columns) and to TeamStatusSidebar's
+`Working 09:00–21:00` line, which was the only place raw stored `HH:mm` reached
+the screen. Roster and card clocks dropped `hh:mm A` to `h:mm A` - the leading
+zero was only buying column stability and `.tnum` already provides that.
+
+HoursEditor's validation strings were left alone deliberately: "times must be
+HH:mm (e.g. 09:00)" describes the STORAGE format, which hasn't changed.
+
+**Timezone preview.** Implements the DECISION block below, unchanged from its
+design. `previewTimezone` (null by default, in-memory - a preview is a
+transient action, not a preference) plus a derived `displayTimezone` consulted
+by ScheduleGrid and TeamHoursPanel only. MeetingPanel and the meetings fetch
+window read `viewerTimezone` unconditionally, so a preview can never
+reinterpret a write. New `TimezonePreview.tsx` at the top of ScheduleView,
+offering the team's own zones; banner while active, and the grid's caption
+stops claiming "your local time".
+
+**Responsive.** The grid was INVISIBLE at narrow widths and the cause was
+`mx-auto` on content wider than its `overflow-x-auto` container - auto margins
+there make part of the overflow unreachable rather than scrollable. Replaced
+with `width: max-content`. Sticky member-name column (`bg-surface` on it is
+load-bearing, not decoration - a transparent sticky element lets cells scroll
+visibly underneath). Main/sidebar stack below `lg`, sidebar's divider flips
+from left to top. Compare Availability pills, MeetingPanel's header and
+AppHeader all wrap instead of colliding.
+
+Scroll-to-now replaced the hardcoded `scrollLeft = 360`, a magic number tuned
+to one viewport. First attempt SILENTLY DID NOTHING: it was a mount effect, but
+on the first render `loading` is true and the component returns early, so the
+ref was still null. Caught only because Tim's screenshots showed the grid
+opening at 6AM while it was 7PM. Now keyed to `loading` with a ref guard so it
+fires once, after data.
+
+**Drive-by:** `buttonClasses` moved out of `Button.tsx` into `utils/ui.ts`,
+clearing the project's one lint error - a module exporting both a component and
+a plain function can't be hot-reloaded. Same reasoning that split `useTeam.ts`
+out of `TeamContext.tsx`.
+
+VERIFIED 8/8 (Tim, browser QA + lint + `npm run test:run` on Windows):
+12-hour labels across the grid; narrow-width grid reachable and scrollable to
+all 24 hours with names pinned; sidebar stacking. The preview was tested end to
+end against the split - previewing Tokyo from Chicago, a meeting booked at
+"8:00 PM" listed as 8:00 PM in MeetingPanel (viewer's clock), drew at 10AM on
+the previewed Tokyo grid, and moved to the 8PM column on switching back. That
+booking reading 8:00 PM rather than 6:00 AM IS the display/write split holding.
+
+KNOWN EDGE, accepted and commented in ScheduleGrid: `meetings` is FETCHED for
+the viewer's day but DRAWN clamped to the display zone's day, so previewing a
+distant zone can drop a meeting sitting at the edge of your own day. Fixing it
+by previewing the fetch too would let a display-only control change what the
+app requests, which is the coupling the split exists to prevent.
+
+### DECISION: timezone PREVIEW, not user simulation (8/7, built 8/8)
+
+Raised while testing the viewerId retirement: with the dropdown gone, demoing
+cross-timezone behaviour needs DevTools, which is fine for QA and useless for
+showing the app to a person.
+
+FIRST PROPOSAL, rejected: an admin-only "debug mode" restoring the old
+simulate-as-user dropdown. Two problems.
+- It would TEST THE WRONG PATH. The old dropdown was load-bearing - it WAS the
+  zone source, so QA through it exercised the real thing. A debug override
+  SHADOWS the real source, so testing through it would never exercise
+  browser-sourcing, the fallback chain, or mismatch detection - precisely the
+  new code. It'd give confidence about the debug path while the shipping path
+  went unverified.
+- "Doesn't change any logic" isn't reachable. `viewerTimezone` feeds four
+  consumers: ScheduleGrid, TeamHoursPanel, MeetingPanel's wall-clock ->
+  instant conversion, and the meetings FETCH WINDOW. Overriding it overrides
+  all four, so debug mode could book a real meeting interpreted through the
+  simulated user's zone. Making it view-only means splitting display-zone from
+  write-zone, which IS a logic change, in the exact spot this decision block
+  called forced.
+
+ANSWER: a control that previews a ZONE, not a PERSON. "Show this grid in
+Berlin" implies nothing about identity, so none of the 7/18 impersonation
+reasoning applies - that objection was specifically that acting AS someone
+implies an authority auth forbids.
+
+Better on several axes at once: no admin gate needed (it isn't privileged -
+every member's timezone is already in the GET /team-members response), no
+impersonation problem, and it's arguably a real FEATURE rather than debug
+scaffolding, since "what does my team's day look like in Berlin before I
+schedule this?" is a question a user of an availability dashboard actually
+has. It still demos exactly what's wanted: picking Tokyo shows the same grid
+the Tokyo employee sees.
+
+THE IRREDUCIBLE COST, either way: display-zone and write-zone must separate.
+A `previewTimezone` defaulting to null, consulted ONLY by ScheduleGrid and
+TeamHoursPanel as `previewTimezone ?? viewerTimezone`. MeetingPanel and the
+meetings fetch window keep reading `viewerTimezone` unconditionally. While a
+preview is active the grid needs a persistent banner, and MeetingPanel either
+disables or states plainly that it books in your real zone. Without that
+separation someone previews Tokyo, books "2pm", and it lands at 2pm Chicago.
+
+RESOLVED 8/8 (was open): preview does NOT persist across reloads. In-memory
+only - it's a transient "let me look at" action, and it sidesteps the
+persistence machinery the viewer-timezone DECISION already rejected for the
+same reason.
+
+## COMPLETED — Native date/time inputs replaced with themed selects (8/8)
+
+Started as "these dropdowns look bad" and turned out to be unfixable as posed.
+The FIELD of an `<input type="time">` was always ours to style; the POPUP is
+browser chrome living outside the page, so a dark themed field dropped a stark
+black panel with a system-grey highlight and square corners. The only hooks
+Chromium exposes (`::-webkit-calendar-picker-indicator`, the
+`::-webkit-datetime-edit-*` parts) reach the field, never the panel.
+
+`nextSteps.md` had warned against replacing these inputs, and that warning was
+right about what it aimed at: hand-rolling a TEXT input means writing AM/PM
+parsing, trading a free picker and free validation for a new class of bug. A
+`<select>` sidesteps it rather than accepting it - the options are a closed set
+we generate, so there is no user-typed text to parse and no invalid value the
+control can emit.
+
+WHAT LANDED:
+- `utils/timeOptions.ts` - hour, minute, grouped-hour and day option builders.
+- `ThemedSelect.tsx` - the one styled select in the app. Owns the chevron (the
+  field sets `appearance: none`, so something has to draw one) and the
+  base-select handoff.
+- `TimeSelect.tsx` - hour + minute as TWO fields.
+- `appearance: base-select` block in `index.css`, behind `@supports`. Chromium
+  135+ gets a fully themed popup - surface fill, 10px radius, brand on the
+  selected option, styled `optgroup` headers, chevron rotating on open.
+  Everything else keeps the native popup unchanged rather than a half-styled
+  hybrid.
+- Removed the now-dead `::-webkit-calendar-picker-indicator` rule; no native
+  date/time inputs remain. Left a note where it was, since it looks like
+  something you'd want back and isn't.
+
+96 OPTIONS WAS THE WRONG MODEL, and the first attempt shipped it. A single
+quarter-hour list is technically complete and practically a scroll - four
+screens of near-identical strings, opening nowhere near the current value.
+Split into 24 + 4, each fitting one popup, losing no reachable time. Hours are
+grouped by part of day (Night wraps both ends of the clock, so it opens a
+SECOND group at 9PM rather than reordering).
+
+THE BUG THIS INTRODUCED, and how it surfaced: Tim asked whether anything
+validates against injected minutes. Checking `shiftValidation.ts` showed the
+rule is stricter than what had just been built - SHIFT boundaries must land on
+the HOUR (ScheduleGrid lights whole hour cells), while only BREAKS may be on a
+quarter. So the new minute select offered `:15/:30/:45` on shift times, three
+choices the save would refuse. Fixed with a `granularity` prop: `'hour'` drops
+the minute field entirely and forces `:00` on change (which is also how a
+legacy off-hour record gets repaired), `'quarter'` keeps both. A question about
+error handling, not a review of the diff, is what caught it.
+
+Off-quarter stored values are injected into the minute list rather than
+dropped - a select with no matching option renders blank and reads back as its
+first option, so saving would silently rewrite `:37` to `:00`.
+
+## COMPLETED — wallClockToInstant extracted, and the two bugs that surfaced (8/8)
+
+The app's only WRITE-side timezone conversion lived inline in
+`MeetingPanel.handleSubmit`, which made it the one piece of timezone logic that
+couldn't be tested - and the one where a mistake is durable rather than
+re-rendered away. Moved to `scheduleTime.ts` so "all timezone logic funnels
+through scheduleTime.ts" is true without an exception. What stays in the
+component is the choice of ZONE, which is a decision rather than arithmetic.
+
+Then it was tested, and it was wrong twice:
+
+1. **Wrong error attribution.** `dayjs.tz()` throws on an unparseable DATE as
+   well as an unknown zone, so one `try` blamed the timezone for a bad date -
+   the user was told "could not read your timezone" while their timezone was
+   fine. Fixed by proving the zone alone first, with a value that can't fail
+   for any other reason.
+2. **Silent rollover, the serious one.** dayjs does not reject an impossible
+   time, it NORMALISES it and reports `isValid() === true`. `'99:99'` on the
+   8th came back `ok` with an instant on the 12th - a real meeting, four days
+   from the one requested, undetectable downstream. Now shape-checked before
+   dayjs sees it, plus a read-back guard that also catches impossible calendar
+   dates (`2026-02-31`) and DST-gap wall clocks (`02:30` on a spring-forward
+   day never happens).
+
+Neither was reachable through the UI, since the selects only emit valid values.
+They were latent, waiting for a direct API call or a future caller - which is
+the argument for testing the write path rather than trusting its callers.
+
+Also added a cross-zone matrix for `resolveHourRangeInViewerTz` (Tokyo/Chicago/
+Sydney/London pairs, pinned at an instant that is already the next day in Asia,
+so it also covers the anchor date being the MEMBER's) and duration-across-DST
+cases. Suite is 130 tests, green.
+
+METHOD NOTE, worth more than the tests: Claude had been reporting all session
+that vitest couldn't run in its sandbox, because `npm run test:run` fails there
+with a `MODULE_NOT_FOUND` on a rolldown binding. That error is a red herring -
+the cause is that `node_modules/` was installed on Windows. A clean install in
+a scratch directory runs the util tests fine. Tim pushed back on the claim and
+both bugs above were found within minutes. Written up in CLAUDE.md so no future
+session repeats the misread.
+
 ## COMPLETED — Retire viewerId (8/7)
 The last pre-auth leftover. Not a deletion: `viewerId` owned the grid's ONLY
 timezone source, so this was a replacement, and the test of whether it was a
@@ -74,11 +276,39 @@ the amber line read as two different facts rather than a contradiction - and
 with nothing to contrast against it answers a question nobody asked, while
 being the sole cause of the line overflowing its column.
 
-VERIFIED 8/7 (Tim, browser QA): identity block renders with and without a
-mismatch; a chillguy/Sydney profile against a Chicago device showed the amber
-line while the grid correctly stayed on Chicago; roster rows continue to show
-each member's own stored zone. `tsc --noEmit` and `eslint` clean on all touched
-files.
+VERIFIED 8/7 (Tim, browser QA + `npm run lint` + `npm run test:run` on
+Windows): identity block renders with and without a mismatch; a
+chillguy/Sydney profile against a Chicago device showed the amber line while
+the grid correctly stayed on Chicago; roster rows continue to show each
+member's own stored zone.
+
+VERIFIED 8/7, CROSS-TIMEZONE - the real test of the replacement, run in Edge
+with a DevTools Sensors location override set to Tokyo (Firefox has no
+equivalent panel; note for next time). Device Tokyo, profile Chicago, so every
+member converted through a +14 offset and four of the six crossed midnight -
+more overnight wraparound cases on screen at once than the app had ever
+displayed. Every row checked against the arithmetic:
+
+| Member         | Stored              | Expected in Tokyo |
+|----------------|---------------------|-------------------|
+| Tim Doe        | 09:00-21:00 Chicago | 11PM-11AM         |
+| bob dylan      | 07:00-15:00 LA      | 11PM-7AM          |
+| michael jordan | 08:00-16:00 NY      | 9PM-5AM           |
+| chillguy       | 11:00-17:00 Sydney  | 10AM-4PM          |
+| Becca          | 09:00-17:00 Denver  | 12AM-8AM          |
+
+All correct, in the grid AND in the Compare Availability pills. Also held:
+- Clocks - identity block 06:24 AM Tokyo against the viewer's own roster row
+  at 04:24 PM Chicago, exactly 14 hours apart. The two showing DIFFERENT
+  values is the intended split, not a bug: the grid is on the device, roster
+  rows are on each member's stored zone.
+- lala (the Tokyo member) read 06:24 AM, matching the identity block exactly -
+  the clean invariant, since member zone and viewer zone are the same.
+- The booked meeting moved 2:45 PM Chicago -> 4:45 AM Tokyo, and MeetingPanel
+  labelled itself `(Asia/Tokyo - your clock)`. Grid and booking form sharing
+  one value is the consistency the DECISION block called forced.
+
+`tsc --noEmit` and `eslint` clean on all touched files.
 
 KNOWN, NOT FROM THIS WORK: `npm run lint` reports one pre-existing error in
 `Button.tsx` (`buttonClasses` exported alongside a component trips

@@ -2,7 +2,8 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import type { ReactNode } from 'react';
-import Button, { buttonClasses } from './Button';
+import Button from './Button';
+import { buttonClasses } from '../utils/ui';
 
 interface AppHeaderProps {
   // Optional nav tabs slot - AdminLayout passes its Schedule/Manage NavLinks
@@ -23,8 +24,13 @@ const AppHeader = ({ tabs }: AppHeaderProps) => {
 
   return (
     <div className="p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-3xl font-bold">Team Availability Dashboard</h1>
+      {/* Wraps rather than squeezing: the title and the two controls both have
+          a minimum they can't go below, so on a phone they stack instead of
+          overlapping. The title also steps down a size below sm - "Team
+          Availability Dashboard" at text-3xl takes three lines on a 375px
+          screen and pushes everything else off the first fold. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h1 className="text-xl sm:text-3xl font-bold">Team Availability Dashboard</h1>
         <div className="flex items-center gap-2">
           {/* Every logged-in user has their own hours to manage, admin or
               not - lives outside the tabs slot since it's not route-specific
@@ -44,7 +50,7 @@ const AppHeader = ({ tabs }: AppHeaderProps) => {
       {/* Only rendered when a route passes tabs in - keeps the tab bar out
           of /dashboard, which has no sub-navigation */}
       {tabs && (
-        <nav className="flex gap-2 border-b border-line mb-4">
+        <nav className="flex flex-wrap gap-2 border-b border-line mb-4">
           {tabs}
         </nav>
       )}

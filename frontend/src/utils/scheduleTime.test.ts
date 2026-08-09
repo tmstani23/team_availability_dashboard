@@ -16,6 +16,8 @@ import {
   isHourInRange,
   formatHourLabel,
   formatHourRange,
+  formatWallClock,
+  wallClockToInstant,
   formatTimezoneLabel,
   type HourRange,
   type ShiftResolution,
@@ -959,6 +961,43 @@ describe('meetingsForMember', () => {
   });
 });
 
+describe('formatWallClock', () => {
+  it('drops :00 minutes so on-the-hour times match the column headers', () => {
+    expect(formatWallClock('09:00')).toBe('9AM');
+    expect(formatWallClock('17:00')).toBe('5PM');
+  });
+
+  it('keeps minutes when they are not zero', () => {
+    expect(formatWallClock('09:30')).toBe('9:30AM');
+    expect(formatWallClock('13:45')).toBe('1:45PM');
+  });
+
+  // Midnight and noon are the two the modulo gets wrong if written naively -
+  // 0 % 12 and 12 % 12 are both 0, which prints "0AM" / "0PM".
+  it('handles midnight and noon', () => {
+    expect(formatWallClock('00:00')).toBe('12AM');
+    expect(formatWallClock('00:15')).toBe('12:15AM');
+    expect(formatWallClock('12:00')).toBe('12PM');
+    expect(formatWallClock('12:30')).toBe('12:30PM');
+  });
+
+  // Storage is the source of truth and this is a render-edge formatter, so a
+  // value it can't read is passed through rather than guessed at. A made-up
+  // time next to a real one is worse than an obviously raw string.
+  it('passes through anything that is not a readable HH:mm', () => {
+    expect(formatWallClock('nonsense')).toBe('nonsense');
+    expect(formatWallClock('9am')).toBe('9am');
+    expect(formatWallClock('24:00')).toBe('24:00');
+    expect(formatWallClock('09:75')).toBe('09:75');
+  });
+
+  it('returns empty string for missing values', () => {
+    expect(formatWallClock(undefined)).toBe('');
+    expect(formatWallClock(null)).toBe('');
+    expect(formatWallClock('')).toBe('');
+  });
+});
+
 describe('formatTimezoneLabel', () => {
   it('takes the city off a two-segment IANA zone', () => {
     expect(formatTimezoneLabel('Australia/Sydney')).toBe('Sydney');
@@ -992,5 +1031,168 @@ describe('formatTimezoneLabel', () => {
     expect(formatTimezoneLabel('')).toBe('');
     expect(formatTimezoneLabel('   ')).toBe('');
     expect(formatTimezoneLabel('America/')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE WRITE PATH. Everything above this point converts times for DISPLAY, and
+// a mistake there renders wrong until someone reloads. wallClockToInstant is
+// the only function whose output gets STORED, so a mistake here is durable -
+// it books a meeting at the wrong moment and nothing later can tell.
+//
+// It also carries the display/write split: it must be called with the viewer's
+// real zone and never a previewed one. That's a call-site rule a unit test
+// can't enforce, so what's pinned here instead is the property that makes the
+// rule matter - the same wall clock in two zones is two different instants.
+// ---------------------------------------------------------------------------
+describe('wallClockToInstant', () => {
+  it('reads the wall clock on the given zone, not the machine', () => {
+    const chicago = wallClockToInstant('2026-08-08', '14:00', 'America/Chicago', 30);
+    const tokyo = wallClockToInstant('2026-08-08', '14:00', 'Asia/Tokyo', 30);
+
+    expect(chicago).toMatchObject({ ok: true, startsAt: '2026-08-08T19:00:00.000Z' });
+    expect(tokyo).toMatchObject({ ok: true, startsAt: '2026-08-08T05:00:00.000Z' });
+  });
+
+  // THE REGRESSION THIS FILE EXISTS FOR. If a preview ever reaches this
+  // function, "2pm" starts meaning 2pm somewhere else - and the two calls
+  // above are exactly how that failure looks. Booking 2pm while previewing
+  // Tokyo would store 05:00Z instead of 19:00Z: a real meeting, 14 hours off,
+  // with nothing downstream able to notice.
+  it('gives DIFFERENT instants for the same wall clock in different zones', () => {
+    const chicago = wallClockToInstant('2026-08-08', '14:00', 'America/Chicago', 30);
+    const tokyo = wallClockToInstant('2026-08-08', '14:00', 'Asia/Tokyo', 30);
+    if (!chicago.ok || !tokyo.ok) throw new Error('expected both to convert');
+    expect(chicago.startsAt).not.toBe(tokyo.startsAt);
+  });
+
+  // The offset depends on the DATE, not just the zone - one zone changes its
+  // own offset twice a year. Hardcoding an offset passes in one season and is
+  // an hour wrong in the other, which is the classic version of this bug.
+  it('applies the offset in force on that date, not a fixed one', () => {
+    expect(wallClockToInstant('2026-01-15', '09:00', 'America/Chicago', 30))
+      .toMatchObject({ startsAt: '2026-01-15T15:00:00.000Z' }); // CST, UTC-6
+    expect(wallClockToInstant('2026-07-15', '09:00', 'America/Chicago', 30))
+      .toMatchObject({ startsAt: '2026-07-15T14:00:00.000Z' }); // CDT, UTC-5
+  });
+
+  it('crosses UTC midnight without changing the local date meant', () => {
+    expect(wallClockToInstant('2026-08-08', '20:00', 'America/Chicago', 30))
+      .toMatchObject({
+        ok: true,
+        startsAt: '2026-08-09T01:00:00.000Z',
+        endsAt: '2026-08-09T01:30:00.000Z',
+      });
+  });
+
+  // Duration is added to the INSTANT, not the wall clock, so a meeting
+  // spanning a changeover lasts what it says. Adding to the wall clock would
+  // make this 60-minute meeting either 0 or 120 real minutes.
+  it('keeps duration exact across both DST changeovers', () => {
+    const cases: [string, string][] = [
+      ['2026-03-08', '01:30'], // spring forward, 02:00 -> 03:00
+      ['2026-11-01', '01:30'], // fall back, 02:00 -> 01:00
+      ['2026-08-08', '14:00'], // ordinary day, as a control
+    ];
+
+    for (const [date, time] of cases) {
+      const result = wallClockToInstant(date, time, 'America/Chicago', 60);
+      if (!result.ok) throw new Error(`expected ${date} ${time} to convert`);
+      const elapsed = new Date(result.endsAt).getTime() - new Date(result.startsAt).getTime();
+      expect(elapsed).toBe(60 * 60 * 1000);
+    }
+  });
+
+  // The two failure reasons are distinguished because the UI shows different
+  // messages, and telling someone their date didn't parse when the real
+  // problem is their timezone sends them to fix the wrong thing.
+  it('separates a bad zone from a bad date/time', () => {
+    expect(wallClockToInstant('2026-08-08', '14:00', 'Not/AZone', 30))
+      .toEqual({ ok: false, reason: 'timezone' });
+    expect(wallClockToInstant('2026-08-08', '14:00', undefined, 30))
+      .toEqual({ ok: false, reason: 'timezone' });
+    expect(wallClockToInstant('nonsense', '14:00', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+    expect(wallClockToInstant('2026-08-08', '99:99', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+  });
+
+  // dayjs does NOT reject an impossible time, it rolls it over and reports
+  // isValid() === true. Found by this test, not by hand: '99:99' on the 8th
+  // came back ok with an instant on the 12th - a real meeting, four days from
+  // the one asked for, with nothing downstream able to tell.
+  it('rejects impossible times instead of rolling them over', () => {
+    expect(wallClockToInstant('2026-08-08', '99:99', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+    expect(wallClockToInstant('2026-08-08', '24:00', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+    expect(wallClockToInstant('2026-02-31', '14:00', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+  });
+
+  // A wall clock inside the spring-forward gap never happens - Chicago goes
+  // 01:59 straight to 03:00 on 2026-03-08. dayjs rolls it forward silently, so
+  // this is the same class of bug as the rollover above.
+  it('rejects a wall clock that falls in a DST gap', () => {
+    expect(wallClockToInstant('2026-03-08', '02:30', 'America/Chicago', 30))
+      .toEqual({ ok: false, reason: 'format' });
+    // The hour either side of the gap is real and must still work.
+    expect(wallClockToInstant('2026-03-08', '01:30', 'America/Chicago', 30))
+      .toMatchObject({ ok: true });
+    expect(wallClockToInstant('2026-03-08', '03:30', 'America/Chicago', 30))
+      .toMatchObject({ ok: true });
+  });
+
+  // A zero or negative duration would store a meeting ending before it starts,
+  // which resolveMeetingCarveOutInViewerTz then silently declines to draw -
+  // a booking that succeeds and never appears.
+  it('refuses a non-positive duration', () => {
+    expect(wallClockToInstant('2026-08-08', '14:00', 'America/Chicago', 0))
+      .toEqual({ ok: false, reason: 'format' });
+    expect(wallClockToInstant('2026-08-08', '14:00', 'America/Chicago', -30))
+      .toEqual({ ok: false, reason: 'format' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CROSS-ZONE MATRIX for the display side. resolveHourRangeInViewerTz is
+// covered above for the ordinary case; this pins the pairs that actually get
+// demoed and QA'd, including the ones where a shift wraps midnight purely
+// BECAUSE of the conversion - a 9-to-5 that is overnight for the reader is the
+// single most confusing thing the grid draws, and the easiest to break.
+//
+// `now` is pinned to 7pm Chicago, which is already the next day in Tokyo and
+// Sydney - so these also cover the anchor date being the MEMBER's, not the
+// viewer's.
+// ---------------------------------------------------------------------------
+describe('resolveHourRangeInViewerTz across zones', () => {
+  const now = dayjs.tz('2026-08-08 19:00', 'America/Chicago');
+  const nineToFive: ShiftResolution = { state: 'working', startTime: '09:00', endTime: '17:00' };
+
+  const cases: [string, string, string, HourRange][] = [
+    ['Asia/Tokyo', 'America/Chicago', 'Tokyo 9-5 read in Chicago',
+      { startHour: 19, endHour: 3, isOvernight: true }],
+    ['America/Chicago', 'Asia/Tokyo', 'Chicago 9-5 read in Tokyo',
+      { startHour: 23, endHour: 7, isOvernight: true }],
+    ['Australia/Sydney', 'America/Chicago', 'Sydney 9-5 read in Chicago',
+      { startHour: 18, endHour: 2, isOvernight: true }],
+    ['Europe/London', 'America/Chicago', 'London 9-5 read in Chicago',
+      { startHour: 3, endHour: 11, isOvernight: false }],
+    ['America/Chicago', 'America/Chicago', 'same zone is a passthrough',
+      { startHour: 9, endHour: 17, isOvernight: false }],
+  ];
+
+  for (const [memberTz, viewerTz, name, expected] of cases) {
+    it(name, () => {
+      expect(resolveHourRangeInViewerTz(nineToFive, memberTz, viewerTz, now)).toEqual(expected);
+    });
+  }
+
+  // An overnight shift read in its OWN zone must stay exactly as entered -
+  // the wrap is real, not an artefact of conversion, so nothing should shift.
+  it('leaves a genuinely overnight shift alone in its own zone', () => {
+    const overnight: ShiftResolution = { state: 'working', startTime: '20:00', endTime: '05:00' };
+    expect(resolveHourRangeInViewerTz(overnight, 'America/Chicago', 'America/Chicago', now))
+      .toEqual({ startHour: 20, endHour: 5, isOvernight: true });
   });
 });

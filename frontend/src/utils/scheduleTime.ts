@@ -464,6 +464,101 @@ export function resolveMeetingCarveOutInViewerTz(
 }
 
 /**
+ * THE ONE PLACE A WALL CLOCK BECOMES AN INSTANT.
+ *
+ * Everything else in this file reads instants or wall clocks and renders them.
+ * This is the only direction that WRITES: a date and a time from a form name a
+ * wall clock ("2pm on the 3rd"), which is not yet a moment - it becomes one
+ * only when pinned to a zone, and the zone that makes it mean what the user
+ * intended is the VIEWER's, because they typed 2pm meaning 2pm on their own
+ * clock.
+ *
+ * Lived inline in MeetingPanel.handleSubmit until 8/8. Moved here because it's
+ * the single highest-consequence conversion in the app and a component body is
+ * the one place it couldn't be tested - and because "all timezone logic funnels
+ * through scheduleTime.ts" should be true without an exception.
+ *
+ * NOT previewable, and that's the whole display/write split: this must be
+ * called with viewerTimezone, never displayTimezone, or previewing Tokyo and
+ * booking "2pm" lands the meeting at 2pm Tokyo on a Chicago user's calendar.
+ *
+ * Getting it wrong is quiet. `dayjs(\`${date} ${time}\`)` with no zone uses the
+ * BROWSER's, which is right exactly while the viewer's zone happens to match -
+ * so it works perfectly on the author's machine and is wrong by an offset for
+ * everyone else.
+ *
+ * endsAt is computed by adding to the INSTANT, not to the wall clock, so a
+ * meeting spanning a DST changeover is still the duration it says it is
+ * (a 60-minute meeting is 60 real minutes even when the local clock jumps).
+ */
+export type InstantResult =
+  | { ok: true; startsAt: string; endsAt: string }
+  | { ok: false; reason: 'timezone' | 'format' };
+
+export function wallClockToInstant(
+  date: string,
+  time: string,
+  zone: string | undefined,
+  durationMinutes: number
+): InstantResult {
+  if (!zone) return { ok: false, reason: 'timezone' };
+
+  // Prove the ZONE on its own first, with a value that can't fail for any
+  // other reason. dayjs.tz() throws for BOTH an unknown zone and an
+  // unparseable date, so a single try around the real conversion can't tell
+  // them apart - it blamed the timezone for a malformed date, and the user
+  // got "could not read your timezone" while their timezone was fine. Caught
+  // by the test below, not by hand.
+  try {
+    dayjs().tz(zone);
+  } catch {
+    return { ok: false, reason: 'timezone' };
+  }
+
+  // SHAPE-CHECK BEFORE dayjs SEES IT. dayjs does not reject an impossible
+  // time, it ROLLS IT OVER and reports isValid() === true: '99:99' on the 8th
+  // silently became the 12th at 09:39, which would have booked a real meeting
+  // four days from the one requested. Same trap resolveBreakCarveOutInViewerTz
+  // guards against, and it matters more here because this is the write path.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+    return { ok: false, reason: 'format' };
+  }
+  const [hours, minutes] = time.split(':').map(Number);
+  if (hours > 23 || minutes > 59) return { ok: false, reason: 'format' };
+
+  let start: Dayjs;
+  try {
+    start = dayjs.tz(`${date} ${time}`, zone);
+  } catch {
+    // Zone is already proven good, so anything throwing here is the input.
+    return { ok: false, reason: 'format' };
+  }
+
+  if (!start.isValid()) return { ok: false, reason: 'format' };
+
+  // The shape check above can't catch a well-formed but non-existent wall
+  // clock, and dayjs rolls those over too. Two kinds reach here:
+  //   - impossible calendar dates (2026-02-31 becomes March 3)
+  //   - times inside a DST spring-forward gap, which never occur at all
+  //     (02:30 on a US changeover day: the clock goes 01:59 -> 03:00)
+  // Reading the result back and requiring it to match what was asked for
+  // catches both. Rejecting is the right answer for each - silently moving
+  // someone's meeting is how the 99:99 case would have gone wrong.
+  if (start.format('YYYY-MM-DD HH:mm') !== `${date} ${time}`) {
+    return { ok: false, reason: 'format' };
+  }
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    return { ok: false, reason: 'format' };
+  }
+
+  return {
+    ok: true,
+    startsAt: start.toISOString(),
+    endsAt: start.add(durationMinutes, 'minute').toISOString(),
+  };
+}
+
+/**
  * Is this meeting happening RIGHT NOW?
  *
  * Pure instant comparison, and notably the only presence question in this
@@ -511,6 +606,40 @@ export function formatHourLabel(hour: number): string {
   const period = hour >= 12 ? 'PM' : 'AM';
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}${period}`;
+}
+
+/**
+ * Formats a stored "HH:mm" wall-clock string for display: "09:00" -> "9AM",
+ * "13:30" -> "1:30PM". Minutes are dropped when they're zero, so a shift that
+ * starts on the hour reads the same as a formatHourLabel column header.
+ *
+ * DISPLAY ONLY. Storage stays 24-hour - RecurringShift.startTime is "HH:mm"
+ * and the backend validates that shape - so the output of this must never
+ * travel back into component state or up to the API. Apply it at the render
+ * edge and nowhere else.
+ *
+ * Its own function rather than a wrapper around formatHourLabel because
+ * HourRange carries no minutes, which is exactly why the existing formatter
+ * can't cover this case. Returns the input unchanged when it isn't a
+ * well-formed HH:mm, so a malformed stored value shows as-is rather than as a
+ * confidently wrong time.
+ */
+export function formatWallClock(time: string | undefined | null): string {
+  if (!time || typeof time !== 'string') return '';
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!match) return time;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  // 24:00 and 09:75 are well-shaped but not real times. Pass them through
+  // rather than wrapping them into a plausible-looking lie.
+  if (hour > 23 || minute > 59) return time;
+
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return minute === 0
+    ? `${hour12}${period}`
+    : `${hour12}:${match[2]}${period}`;
 }
 
 /**

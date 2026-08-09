@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTeam } from '../context/useTeam';
 import {
   resolveHourRangeInViewerTz,
@@ -19,18 +19,56 @@ interface ScheduleGridProps {
 
 const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
   // 1. Read live synchronizing records directly out of our global application context hook stream
-  const { members, recurringShifts, meetings, loading, viewerTimezone, now } = useTeam();
+  //
+  // displayTimezone, NOT viewerTimezone. This whole component is display, so
+  // it follows a timezone preview; the booking form and the meetings fetch
+  // window deliberately don't (see the split comment in TeamContext).
+  const { members, recurringShifts, meetings, loading, displayTimezone, previewTimezone, now } = useTeam();
 
   // Hours from 6:00 AM to 5:00 AM next day
   const hours = Array.from({ length: 24 }, (_, i) => (i + 6) % 24);
 
-  // Auto-scroll to typical work hours (around 8AM) on load
+  // Column maths, shared by the layout below AND the scroll-to-now effect.
+  // Hoisted out of the render closure so those two can't drift - the effect
+  // used to hardcode 360px, which silently stopped meaning "8AM" the moment
+  // any of these changed.
+  const NAME_COLUMN_PX = 120;
+  const COLUMN_PX = 55;
+  const GAP_PX = 2;
+
+  // Scroll to NOW rather than to a constant. The old `scrollLeft = 360` was a
+  // magic number tuned to one viewport: on a narrow screen it lands mid-grid
+  // with no anchor, which is a good part of why the grid read as "missing" on
+  // a phone. Anchoring to the current hour means the first thing on screen is
+  // always the part being asked about.
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the opening scroll has already happened. Needed because the
+  // effect can't be a plain mount effect: on the FIRST render `loading` is
+  // true and this component returns early, so the ref is still null and there
+  // is nothing to scroll. It has to wait for the data, then fire exactly once.
+  const hasScrolledToNow = useRef(false);
   useEffect(() => {
-    const gridContainer = document.querySelector('.schedule-grid-container');
-    if (gridContainer) {
-      gridContainer.scrollLeft = 360; // Approximate scroll to 8AM column
-    }
-  }, []);
+    if (loading || hasScrolledToNow.current) return;
+    const container = gridContainerRef.current;
+    if (!container) return;
+    hasScrolledToNow.current = true;
+
+    // Where the current hour sits in the 6AM-first column order.
+    const currentHour = now.tz(displayTimezone).hour();
+    const index = (currentHour - 6 + 24) % 24;
+    const columnLeft = NAME_COLUMN_PX + index * (COLUMN_PX + GAP_PX);
+
+    // Put "now" a little in from the left edge rather than flush against the
+    // sticky name column, so the hour before it stays visible for context.
+    // Math.max keeps an early-morning hour from scrolling to a negative value.
+    container.scrollLeft = Math.max(0, columnLeft - NAME_COLUMN_PX - COLUMN_PX);
+    // Depends on `loading` only. It is deliberately NOT keyed to `now` or
+    // displayTimezone: this is an OPENING position, not a follow. Re-running
+    // it on each poll tick would yank the grid back every ~15s and fight
+    // anyone who had scrolled somewhere else, and the ref guard above means
+    // it can only ever fire once anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Safety protection barrier while data collections initialize on app startup
   if (loading) return <div className="text-white p-4">Loading schedule data...</div>;
@@ -44,15 +82,31 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
           in the booking form is ambiguous. "Viewer TZ" was simulation-era
           wording from when this zone was a dropdown; it's the reader's own
           clock now, so it says so. */}
-      <p className="text-xs text-ink-muted mb-4">
-        All times in {formatTimezoneLabel(viewerTimezone) || viewerTimezone} — your local time
+      {/* The caption has to STOP claiming "your local time" while a preview is
+          active - that phrase is the one thing making the grid's zone
+          trustworthy, so leaving it up during a preview would turn the app's
+          most load-bearing label into its most confident lie. */}
+      <p className={`text-xs mb-4 ${previewTimezone ? 'text-away' : 'text-ink-muted'}`}>
+        All times in {formatTimezoneLabel(displayTimezone) || displayTimezone}
+        {previewTimezone ? ' — previewing this zone' : ' — your local time'}
       </p>
 
-      <div className="schedule-grid-container overflow-x-auto max-w-full pb-4">
+      <div ref={gridContainerRef} className="schedule-grid-container overflow-x-auto max-w-full pb-4">
         {(() => {
-          const columnWidth = '55px';
-          const gridGap = '2px';
-          const gridTemplate = `120px repeat(${hours.length}, ${columnWidth})`;
+          const gridGap = `${GAP_PX}px`;
+          const gridTemplate = `${NAME_COLUMN_PX}px repeat(${hours.length}, ${COLUMN_PX}px)`;
+
+          // The sticky member-name column. Without this the grid is unreadable
+          // the moment it's scrolled at all - you get a wall of coloured cells
+          // with no idea whose row you're on, which is worse than not fitting.
+          //
+          // bg-surface is load-bearing, not decoration: a sticky element is
+          // transparent by default, so the cells it overlaps would scroll
+          // visibly underneath the names. The right border gives the pinned
+          // column an edge so it reads as held in place rather than as
+          // overlapping content.
+          const stickyNameCell =
+            'sticky left-0 z-10 bg-surface border-r border-line pl-4 pr-2';
 
           // Resolve each member's shift + hourRange ONCE here, instead of
           // recomputing it separately for the member rows and the overlap
@@ -62,10 +116,10 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
             // convert to the viewer's tz. off / unset yield a null range, so
             // those rows render empty.
             const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
-            const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
+            const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, displayTimezone);
             // The standing lunch, converted to the viewer's clock the same way
             // the shift block is. Null when the member has no break set.
-            const carveOut = resolveBreakCarveOutInViewerTz(resolution, member.timezone, viewerTimezone);
+            const carveOut = resolveBreakCarveOutInViewerTz(resolution, member.timezone, displayTimezone);
 
             // Meetings this member is attending, converted from UTC instants
             // to the viewer's clock. Note this uses a DIFFERENT function from
@@ -74,8 +128,19 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
             // meeting is an instant that carries its own date. Same CarveOut
             // shape out the other side, so the grid treats them alike from
             // here on.
+            //
+            // KNOWN EDGE, and the deliberate one: `meetings` was FETCHED for
+            // the viewer's local day (the window in TeamContext does not follow
+            // a preview, by design), but this clamps to the DISPLAY zone's day.
+            // Preview a distant zone and a meeting sitting near the edge of
+            // your own day can fall outside the previewed one and stop drawing.
+            // Accepted rather than fixed by previewing the fetch too: that
+            // would make a display-only control change what the app requests,
+            // which is the exact coupling the display/write split exists to
+            // prevent. The banner names the preview, so an incomplete edge hour
+            // reads as a preview artefact rather than as missing data.
             const meetingCarveOuts = meetingsForMember(meetings, member._id)
-              .map(m => resolveMeetingCarveOutInViewerTz(m, viewerTimezone, now))
+              .map(m => resolveMeetingCarveOutInViewerTz(m, displayTimezone, now))
               .filter(carve => carve !== null);
 
             // resolution is carried through (not just hourRange) because off
@@ -90,19 +155,29 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
           const selectedRows = memberRows.filter(row => selectedIds.includes(row.member._id));
 
           return (
-            <div
-              style={{ minWidth: `calc(120px + (${hours.length} * 55px) + (${hours.length} * 2px))` }}
-              className="p-4 mx-auto pl-8"
-            >
-              {/* Scrollable header - centered with padding */}
+            // width: max-content, NOT a minWidth plus auto margins. `mx-auto`
+            // on content wider than its scroll container is a known trap: the
+            // negative margin it computes makes part of the overflow
+            // UNREACHABLE rather than scrollable, which is why the grid was
+            // effectively invisible at narrow widths. Nothing centres itself
+            // in here now - the content is simply as wide as it is and the
+            // container scrolls it.
+            //
+            // No left padding either, so the sticky name column can sit flush
+            // against the scrollport edge instead of a 32px gap sliding under it.
+            <div style={{ width: 'max-content' }} className="py-4 pr-4">
+              {/* Scrollable header */}
               <div
-                className="grid mx-auto pl-8"
+                className="grid"
                 style={{ gridTemplateColumns: gridTemplate, gap: gridGap, marginBottom: '12px', paddingBottom: '8px' }}
               >
-                <div></div>
+                {/* Empty, but still sticky and still opaque - it's the corner
+                    above the pinned name column, and a transparent one lets
+                    hour labels slide visibly under the names. */}
+                <div className={`${stickyNameCell} self-stretch`}></div>
                 {hours.map(hour => (
                   <div key={hour} className="text-center font-bold text-xs whitespace-nowrap text-white tnum">
-                    {hour}:00
+                    {formatHourLabel(hour)}
                   </div>
                 ))}
               </div>
@@ -111,10 +186,14 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
               {memberRows.map(({ member, hourRange, resolution, carveOut, meetingCarveOuts }) => (
                 <div
                   key={member._id}
-                  className="grid mx-auto pl-8"
+                  className="grid"
                   style={{ gridTemplateColumns: gridTemplate, gap: gridGap, margin: '6px 0', alignItems: 'center' }}
                 >
-                  <div className="pr-2 overflow-hidden">
+                  {/* self-stretch matters here. The row sets alignItems:center,
+                      so without it this cell is only as tall as its text and
+                      its background stops short of the row - which means cells
+                      scrolling underneath peek out above and below the name. */}
+                  <div className={`${stickyNameCell} overflow-hidden self-stretch flex flex-col justify-center`}>
                     <div className="font-bold whitespace-nowrap overflow-hidden text-ellipsis text-white">
                       {member.name}
                     </div>
@@ -188,14 +267,18 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
                   rows above, so columns stay pixel-aligned automatically. */}
               {selectedRows.length > 0 && (
                 <div
-                  className="grid mx-auto pl-8"
+                  className="grid"
                   style={{ gridTemplateColumns: gridTemplate, gap: gridGap, margin: '10px 0 0', alignItems: 'center', borderTop: '1px solid var(--color-line)', paddingTop: '10px' }}
                 >
                   {/* Sky, matching the row's own fill and the "In a meeting"
                       pill - this label, the cells beside it and the status
                       pill are all the same feature, so they're one colour.
                       Violet is reserved for things you can click. */}
-                  <div className="font-bold pr-2 whitespace-nowrap overflow-hidden text-ellipsis text-booked text-sm">
+                  {/* Sticky too - a pinned column that loses its label on the
+                      one row that isn't a person would read as a gap. The
+                      inline paddingTop above lands on this cell as well, so the
+                      background covers the full row height it occupies. */}
+                  <div className={`${stickyNameCell} font-bold whitespace-nowrap overflow-hidden text-ellipsis text-booked text-sm self-stretch flex items-center`}>
                     Overlap
                   </div>
 

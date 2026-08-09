@@ -12,7 +12,11 @@ interface TeamHoursPanelProps {
 // Selection state itself lives in ScheduleView (the shared parent), not here
 // or in TeamContext - see nextSteps.md for why.
 const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
-  const { members, recurringShifts, viewerTimezone } = useTeam();
+  // displayTimezone, not viewerTimezone - these chips are a summary of the
+  // same hours the grid draws, so they have to follow a timezone preview or
+  // the two would disagree on screen. Nothing here writes, so following it is
+  // safe (see the split comment in TeamContext).
+  const { members, recurringShifts, displayTimezone } = useTeam();
 
   return (
     // Now sits above ScheduleGrid in the wide main column (moved out of the
@@ -26,13 +30,17 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
           // Same lookup ScheduleGrid uses for its rows - reused here so the
           // hours shown in this checklist always match what the grid renders.
           const resolution = getCurrentShiftForMember(member._id, recurringShifts, member.timezone);
-          const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, viewerTimezone);
+          const hourRange = resolveHourRangeInViewerTz(resolution, member.timezone, displayTimezone);
           const isChecked = selectedIds.includes(member._id);
 
           return (
             <label
               key={member._id}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer text-sm transition-colors ${
+              // max-w-full stops a pill from being wider than the row it wraps
+              // in, which is what clipped the hour label to "7AM–3P" on a
+              // phone: the flex container wrapped, but an individual pill
+              // could still overflow it and get cut at the edge.
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer text-sm transition-colors max-w-full ${
                 isChecked
                   ? 'bg-brand/20 border-brand text-white'
                   : 'bg-card border-line text-ink hover:border-line-strong'
@@ -44,8 +52,12 @@ const TeamHoursPanel = ({ selectedIds, onToggle }: TeamHoursPanelProps) => {
                 onChange={() => onToggle(member._id)}
                 className="accent-brand shrink-0"
               />
-              <span>{member.name}</span>
-              <span className="text-xs text-ink-faint whitespace-nowrap">
+              {/* The NAME truncates and the hours don't. If something has to
+                  give inside a narrow pill it should be the name - a clipped
+                  name is still recognisable next to a checkbox, where a
+                  clipped time ("3P") is just wrong. */}
+              <span className="truncate min-w-0">{member.name}</span>
+              <span className="text-xs text-ink-faint whitespace-nowrap shrink-0">
                 {/* off / unset have no hourRange, so distinguish them here
                     rather than showing a generic "No shift" for both. */}
                 {resolution.state === 'off'

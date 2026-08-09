@@ -110,7 +110,20 @@ export interface TeamContextType {
   // lands in a different column from the one that was clicked. Sourced from
   // the browser, falling back to the logged-in member's stored zone and then
   // 'UTC' - see the comment on it in TeamContext for why the browser wins.
+  //
+  // NOTE this is the WRITE zone. Only MeetingPanel's booking form and the
+  // meetings fetch window should read it directly; anything that merely
+  // DISPLAYS converted hours wants displayTimezone below.
   viewerTimezone: string;
+  // The zone the schedule is currently being LOOKED AT in: previewTimezone
+  // when a preview is active, otherwise viewerTimezone. Read by ScheduleGrid
+  // and TeamHoursPanel and nothing else - see the split comment in
+  // TeamContext for why booking deliberately doesn't follow it.
+  displayTimezone: string;
+  // The zone being previewed, or null when the user is on their own clock.
+  // In-memory only: a preview is a transient action, not a saved preference.
+  previewTimezone: string | null;
+  setPreviewTimezone: (tz: string | null) => void;
   // What the browser actually reported, or null if it couldn't be read. Only
   // reason this is separate: it lets the UI say "this device" honestly. When
   // it equals viewerTimezone the browser won; when it doesn't, a fallback did,

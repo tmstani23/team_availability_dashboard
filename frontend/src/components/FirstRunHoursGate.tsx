@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { useTeam } from '../context/useTeam';
 import { shiftMemberId } from '../utils/scheduleTime';
-import Button, { buttonClasses } from './Button';
+import Button from './Button';
+import { buttonClasses } from '../utils/ui';
 
 // Dismissible, non-blocking nudge shown when the logged-in member has zero
 // RecurringShift records at all - the "never set up" state, distinct from an

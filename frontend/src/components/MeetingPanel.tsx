@@ -4,7 +4,10 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { useTeam } from '../context/useTeam';
 import { useAuth } from '../context/useAuth';
-import { resolveMeetingCarveOutInViewerTz } from '../utils/scheduleTime';
+import { resolveMeetingCarveOutInViewerTz, wallClockToInstant } from '../utils/scheduleTime';
+import { dayOptions } from '../utils/timeOptions';
+import TimeSelect from './TimeSelect';
+import ThemedSelect from './ThemedSelect';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -33,7 +36,11 @@ import Button from './Button';
 const inputClass = inputClasses('sm');
 
 const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
-  const { members, meetings, createMeeting, deleteMeeting, viewerTimezone, now } = useTeam();
+  // viewerTimezone UNCONDITIONALLY - this component both reads and WRITES
+  // times, and a timezone preview must never be able to reinterpret a write
+  // (see the split comment in TeamContext). previewTimezone is pulled in only
+  // to say so on screen while one is active; it never reaches the conversion.
+  const { members, meetings, createMeeting, deleteMeeting, viewerTimezone, previewTimezone, now } = useTeam();
   const { teamMemberId } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -46,6 +53,12 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
   const [saving, setSaving] = useState(false);
 
   const memberName = (id: string) => members.find(m => m._id === id)?.name ?? 'Unknown';
+
+  // Both option lists are built from viewerTimezone, NOT displayTimezone -
+  // same rule as the conversion in handleSubmit. The day list especially:
+  // "Today" has to mean the viewer's today, or previewing Tokyo would offer a
+  // date that books into what is, on their own clock, yesterday.
+  const days = dayOptions(viewerTimezone, now);
 
   const openForm = () => {
     // Prefill from the Overlap Finder, plus yourself - the server requires the
@@ -73,33 +86,25 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
     if (attendeeIds.length === 0) return setError('Pick at least one attendee');
 
     // ================== WALL CLOCK BECOMES AN INSTANT HERE ==================
-    // This is the ONLY place in the app that crosses from one time model to
-    // the other, and it is deliberately one place. The form collects a date
-    // and a time, which together name a WALL CLOCK - "2pm on the 3rd" - and
-    // that is not yet a moment in time. It becomes one only when pinned to a
-    // zone, and the zone that makes it mean what the user intended is the
-    // VIEWER's: they typed 2pm meaning 2pm on their own clock.
+    // The conversion itself lives in scheduleTime.ts (see wallClockToInstant)
+    // alongside every other timezone function, and is tested there. What stays
+    // here is the choice of ZONE, which is the part that's a decision rather
+    // than arithmetic:
     //
-    // dayjs.tz(...) does exactly that and .toISOString() hands back the
-    // instant. From here on the value is an instant everywhere - stored as a
-    // UTC Date, converted per-viewer for display - and nothing downstream ever
-    // sees these strings again.
-    //
-    // Getting this wrong is quiet: dayjs(`${date} ${time}`) with no zone uses
-    // the BROWSER's zone, which is right only while the viewer's timezone
-    // happens to match the browser's. It would work perfectly on your machine
-    // and be wrong by an offset for anyone previewing another zone.
-    let startsAt: string;
-    let endsAt: string;
-    try {
-      const start = dayjs.tz(`${date} ${time}`, viewerTimezone);
-      if (!start.isValid()) return setError('That date and time did not parse');
-      startsAt = start.toISOString();
-      endsAt = start.add(duration, 'minute').toISOString();
-    } catch {
-      // dayjs.tz throws on an unknown zone rather than returning invalid.
-      return setError('Could not read your timezone');
+    // viewerTimezone, NEVER displayTimezone. The user typed 2pm meaning 2pm on
+    // their own clock, and a preview must not be able to reinterpret that -
+    // otherwise previewing Tokyo and booking "2pm" lands the meeting at 2pm
+    // Tokyo. That's the display/write split, and this line is the write side
+    // of it.
+    const converted = wallClockToInstant(date, time, viewerTimezone, duration);
+    if (!converted.ok) {
+      return setError(
+        converted.reason === 'timezone'
+          ? 'Could not read your timezone'
+          : 'That date and time did not parse'
+      );
     }
+    const { startsAt, endsAt } = converted;
     // =======================================================================
 
     setSaving(true);
@@ -138,11 +143,19 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
 
   return (
     <div className="bg-card border border-line rounded-xl p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white">
+      {/* flex-wrap + gap, so the "Book a meeting" button drops to its own line
+          instead of colliding with the header's zone caption on a narrow
+          screen. items-start rather than center keeps the two aligned once
+          they do wrap. */}
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-white min-w-0">
           Meetings today{' '}
-          <span className="text-xs font-normal text-ink-faint">
-            ({viewerTimezone} — your clock)
+          {/* While a preview is running, the grid above and this panel are on
+              two different clocks - which is correct, and is exactly the thing
+              a reader would never guess. So the label stops being a quiet
+              caption and says which zone wins here. */}
+          <span className={`text-xs font-normal ${previewTimezone ? 'text-away' : 'text-ink-faint'}`}>
+            ({viewerTimezone} — {previewTimezone ? 'your clock, not the preview' : 'your clock'})
           </span>
         </h3>
         <Button
@@ -198,19 +211,45 @@ const MeetingPanel = ({ selectedIds }: MeetingPanelProps) => {
             maxLength={120}
           />
 
+          {/* All three are <select>, so all three theme with inputClasses.
+              The date and time used to be native date/time inputs, whose
+              dropdown panels live in Chrome's closed shadow DOM and can't be
+              styled at all - see the header note in utils/timeOptions.ts for
+              why a select is the safe replacement and a text input isn't.
+
+              The values these produce are identical to what the native inputs
+              produced ("YYYY-MM-DD" and "HH:mm"), so handleSubmit below is
+              untouched - it still receives exactly the strings it did before. */}
           <div className="flex flex-wrap gap-2">
-            <input type="date" className={inputClass} value={date} onChange={e => setDate(e.target.value)} />
-            {/* step=900 keeps the picker on quarter hours, matching the break
-                granularity from Phase 2 - the grid can draw a quarter of a
-                cell, and finer than that is precision it can't show. */}
-            <input type="time" step={900} className={inputClass} value={time} onChange={e => setTime(e.target.value)} />
-            <select className={inputClass} value={duration} onChange={e => setDuration(Number(e.target.value))}>
+            <ThemedSelect
+              value={date}
+              onChange={setDate}
+              label="Date"
+              className="w-[9.5rem]"
+            >
+              {days.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </ThemedSelect>
+            {/* Quarter hours, which is what step={900} on the old input already
+                enforced - the grid can draw a quarter of a cell, and finer than
+                that is precision it can't show. So this restricts nothing that
+                wasn't already restricted. */}
+            <TimeSelect value={time} onChange={setTime} label="Start time" />
+            <ThemedSelect
+              value={String(duration)}
+              onChange={value => setDuration(Number(value))}
+              label="Duration"
+              className="w-[6.5rem]"
+            >
               {DURATIONS.map(minutes => (
                 <option key={minutes} value={minutes}>
                   {minutes} min
                 </option>
               ))}
-            </select>
+            </ThemedSelect>
           </div>
 
           <div>

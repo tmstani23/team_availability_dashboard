@@ -61,11 +61,11 @@ The application is structured as a full-stack system utilizing strict type-safet
 ## Known Issues / Technical Debt
 
 The working list lives in `nextSteps.md` (canonical); the reasoning behind
-everything already built lives in `docs/decisions.md`. Also tracked: one outstanding lint error in `Button.tsx`, the absence of a self-service timezone editor (only admins can change a member's zone), the in-memory-only first-run gate dismissal, meeting carve-outs being distinguished by colour alone (no second non-colour signal yet, unlike the lunch carve's tick marks), the type scale still being per-component rather than tokenised, and the responsive/mobile view needing structural work.
+everything already built lives in `docs/decisions.md`. Also tracked: the absence of a self-service timezone editor (only admins can change a member's zone — now has a design in `nextSteps.md`), the in-memory-only first-run gate dismissal, meeting carve-outs being distinguished from lunches by colour alone (both render identically apart from hue), the type scale still being per-component rather than tokenised, a timezone preview drawing meetings from a fetch scoped to the viewer's day rather than the previewed one, and the themed select popup being Chromium-only (it falls back to the native popup elsewhere, which hasn't been looked at).
 
 ## Testing
 
-Unit tests for the pure scheduling/status functions are implemented (Vitest, node env) — run `npm test` (watch) or `npm run test:run` (once) from `frontend/`. Coverage spans `scheduleTime.ts` (timezone conversion, overnight wraparound, DST-sensitive pairs, resolving each member's shift by their *own* weekday, and current on/off-shift state) plus the status precedence rules in `status.ts`. Remaining planned coverage — backend auth (Jest), API routes (Supertest), and `ScheduleGrid` component tests (Vitest + React Testing Library) — is tracked in `nextSteps.md`.
+Unit tests for the pure scheduling/status functions are implemented (Vitest, node env) — run `npm test` (watch) or `npm run test:run` (once) from `frontend/`. 130 tests spanning `scheduleTime.ts` (timezone conversion, overnight wraparound, DST-sensitive pairs, a cross-zone matrix, resolving each member's shift by their *own* weekday, and current on/off-shift state), the wall-clock-to-instant conversion that backs meeting booking, the date/time option builders in `timeOptions.ts`, and the status precedence rules in `status.ts`. Remaining planned coverage — backend auth (Jest), API routes (Supertest), and component tests (Vitest + React Testing Library, scoped to four tests in `nextSteps.md`) — is tracked in `nextSteps.md`.
 
 ## Project Directory Layout
 

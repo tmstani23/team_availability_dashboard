@@ -64,6 +64,39 @@ the full rationale in the body — don't pattern-match on those.
   log, and known-issues list. README points to it. It gets updated at the END
   of a session, not as work lands — see "Order of work" below.
 
+## Running the tests yourself (Claude): the node_modules workaround
+
+`npm run test:run` FAILS in Claude's Linux sandbox, and the error is a red
+herring — a `MODULE_NOT_FOUND` on `rolldown-binding.linux-x64-gnu.node`. The
+cause is that `node_modules/` was installed on Windows, so the native binaries
+are win32-x64. Same reason `npx vite build` fails. `tsc --noEmit` and
+`npm run lint` are pure JS and work fine.
+
+DON'T conclude from this that the tests can't be run and hand them to Tim
+unverified. The util tests import only vitest + dayjs, so a clean install in a
+scratch directory pulls Linux binaries and runs them:
+
+```bash
+rm -rf /tmp/vt && mkdir -p /tmp/vt/src/utils /tmp/vt/src/types
+SRC=<repo>/frontend/src
+cp $SRC/utils/*.ts /tmp/vt/src/utils/          # sources + *.test.ts
+cp $SRC/types/index.ts /tmp/vt/src/types/
+cd /tmp/vt && echo '{"name":"vt","private":true,"type":"module"}' > package.json
+npm install vitest dayjs --silent --no-audit --no-fund
+npx vitest run
+```
+
+Re-copy the changed file and re-run after each edit. This caught two real bugs
+in `wallClockToInstant` on 8/8 that review had missed — including dayjs
+silently rolling `99:99` over into a date four days later while reporting
+`isValid() === true`. Worth the two minutes every time.
+
+LIMIT: utils only. Anything importing React, Vite or a component needs the full
+dependency install, which is slow and not worth it — that's what the jsdom
+DECISION in `nextSteps.md` is about. Never `npm install` into the repo itself
+from the sandbox; it would overwrite Tim's Windows binaries and break his
+machine.
+
 ## Order of work: build → test → THEN docs and commit
 
 Within a session, do the work in this order and STOP at the boundary:
@@ -122,6 +155,8 @@ Full-stack TypeScript, two folders in one repo.
 - `frontend/` — React 19 + Vite 8 + TypeScript, Tailwind v4, react-router-dom
   v7, dayjs (utc + timezone plugins). Run `npm run dev`. Tests: Vitest
   (`npm test` watch, `npm run test:run` once). Lint: `npm run lint`.
+  Claude can run the util tests despite the Windows/Linux binary mismatch —
+  see "Running the tests yourself" above.
 
 ### Backend
 

@@ -86,6 +86,30 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   const loggedInMember = members.find(m => m._id === teamMemberId);
   const viewerTimezone = BROWSER_TIMEZONE || loggedInMember?.timezone || 'UTC';
 
+  // ===================== DISPLAY ZONE vs WRITE ZONE =====================
+  // A zone the user is temporarily LOOKING AT ("show me this grid in Berlin"),
+  // null when they're on their own clock. In-memory on purpose: this is a
+  // transient "let me check" action, not a preference, so it resets on reload
+  // rather than leaving someone permanently reading a zone they forgot they
+  // picked.
+  //
+  // It previews a ZONE, never a PERSON. The retired "simulate as user"
+  // dropdown implied an identity and therefore an authority auth forbids;
+  // "show this grid in Berlin" implies nothing about who you are, which is why
+  // this needs no admin gate - every member's timezone is already public in
+  // the GET /team-members response.
+  //
+  // THE SPLIT BELOW IS NOT OPTIONAL. viewerTimezone feeds four consumers, and
+  // only two of them are display:
+  //   displayTimezone (previewable) - ScheduleGrid, TeamHoursPanel
+  //   viewerTimezone  (never)       - MeetingPanel's wall-clock -> instant
+  //                                   conversion, and the meetings FETCH WINDOW
+  // Collapse them and someone previews Tokyo, books "2pm", and it lands at 2pm
+  // Chicago. A preview must never be able to reinterpret a write.
+  const [previewTimezone, setPreviewTimezone] = useState<string | null>(null);
+  const displayTimezone = previewTimezone ?? viewerTimezone;
+  // =======================================================================
+
   const refreshAllData = async () => {
     try {
       // credentials: 'include' is required on every request now - both
@@ -332,7 +356,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerTimezone, browserTimezone: BROWSER_TIMEZONE, now }}>
+    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerTimezone, displayTimezone, previewTimezone, setPreviewTimezone, browserTimezone: BROWSER_TIMEZONE, now }}>
       {children}
     </TeamContext.Provider>
   );
