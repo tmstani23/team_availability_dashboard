@@ -102,11 +102,17 @@ const ScheduleGrid = ({ selectedIds }: ScheduleGridProps) => {
           //
           // bg-surface is load-bearing, not decoration: a sticky element is
           // transparent by default, so the cells it overlaps would scroll
-          // visibly underneath the names. The right border gives the pinned
-          // column an edge so it reads as held in place rather than as
-          // overlapping content.
+          // visibly underneath the names. That opacity is the whole affordance.
+          //
+          // There is deliberately NO right border. It used to have one, drawn
+          // per name cell, which read as a DASHED line - each row is its own
+          // grid container with a 6px vertical margin, so the border existed
+          // only where a row did. Drawing it once as a continuous rule was
+          // worse rather than better: the column has no edge on its left, so a
+          // hard rule on the right alone just looked lopsided. The opaque
+          // background already says "this is pinned".
           const stickyNameCell =
-            'sticky left-0 z-10 bg-surface border-r border-line pl-4 pr-2';
+            'sticky left-0 z-10 bg-surface pl-4 pr-2';
 
           // Resolve each member's shift + hourRange ONCE here, instead of
           // recomputing it separately for the member rows and the overlap

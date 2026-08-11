@@ -92,6 +92,11 @@ export interface TeamContextType {
   // Sets a member's presence to an explicit state (not a toggle - four
   // states have no single "opposite"). Only active/away/dnd are settable.
   setStatus: (id: string, status: TeamMemberStatus) => Promise<void>;
+  // Schedule identity is self-owned: a member sets their own zone, and an
+  // admin may set anyone's (the override for onboarding and absence). Returns
+  // an outcome rather than throwing for the same reason the meeting calls do -
+  // a 403 is explainable and the UI needs the server's wording.
+  setTimezone: (id: string, timezone: string) => Promise<{ success: boolean; message?: string }>;
   // Both return the outcome instead of throwing: a refusal here is a real,
   // explainable case (you must be an attendee to create; only the organizer or
   // an admin can delete), and the UI needs the server's wording to say so.

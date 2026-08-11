@@ -3,6 +3,7 @@ import { useTeam } from '../context/useTeam';
 import { API_BASE } from '../config';
 import Button from './Button';
 import { inputClasses } from '../utils/ui';
+import { TIMEZONE_OPTIONS } from '../utils/timezones';
 
 const AddTeamMemberForm = () => {
   // Single state object for all fields (controlled inputs) rather than
@@ -116,7 +117,9 @@ const AddTeamMemberForm = () => {
 
         <div>
           <label className="block text-sm text-ink-muted mb-1">Timezone</label>
-          {/* Fixed list rather than free text to keep values as valid IANA timezone strings */}
+          {/* Fixed list rather than free text to keep values as valid IANA
+              timezone strings, and shared with TeamMemberCard and the member's
+              own profile so the three can't drift apart - see timezones.ts. */}
           <select
             className={inputClasses("md", "w-full")}
             value={formData.timezone}
@@ -124,14 +127,11 @@ const AddTeamMemberForm = () => {
             required
           >
             <option value="">Select Timezone</option>
-            <option value="America/New_York">America/New_York (Eastern)</option>
-            <option value="America/Chicago">America/Chicago (Central)</option>
-            <option value="America/Denver">America/Denver (Mountain)</option>
-            <option value="America/Los_Angeles">America/Los_Angeles (Pacific)</option>
-            <option value="Europe/London">Europe/London (GMT)</option>
-            <option value="Europe/Paris">Europe/Paris</option>
-            <option value="Asia/Tokyo">Asia/Tokyo</option>
-            <option value="Australia/Sydney">Australia/Sydney</option>
+            {TIMEZONE_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 

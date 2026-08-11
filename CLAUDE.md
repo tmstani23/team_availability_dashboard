@@ -110,9 +110,29 @@ Within a session, do the work in this order and STOP at the boundary:
    (lint, tests, browser QA) and what specifically to look for.
 4. **WAIT.** Tim runs the tests and reports back.
 5. Only then, and only after ASKING: write the `## COMPLETED` entry in
-   `nextSteps.md`, update the README, and draft the commit message (see
-   "Commit message style" above — the reasoning goes in `nextSteps.md`, the
-   commit message just lists what landed).
+   `nextSteps.md`, update the README, CHECK CLAUDE.md (see below), and draft
+   the commit message (see "Commit message style" above — the reasoning goes in
+   `nextSteps.md`, the commit message just lists what landed).
+
+On CLAUDE.md at step 5: check it, don't reflexively edit it. This file holds
+CONVENTIONS and the architecture ramp, not session state — state lives in
+`nextSteps.md` and `docs/decisions.md`, and that split is deliberate. So it
+changes only when something it DOCUMENTS changed:
+
+  - a new model, route, or route family
+  - a new context value or method
+  - a renamed route or page
+  - a new invariant, or a permission rule that now differs from what's written
+
+Most sessions hit none of those and should leave it alone. Bug fixes, UI
+polish, copy changes and doc updates never touch it.
+
+The reason it's on the checklist at all: it went stale between 8/7 and 8/11 and
+had to be corrected in bulk — it still called `viewerId` live tech debt after
+it was retired, never mentioned the Meeting model, and said nothing about the
+display/write split, which is the most load-bearing invariant in the codebase.
+A fresh chat reading it would have built on three wrong facts. Checking it at
+the end of each session is what stops that accumulating again.
 
 Why: writing the log before testing means rewriting it when something fails,
 and it produces multi-commit churn where one clean commit would do. A
@@ -169,16 +189,26 @@ Full-stack TypeScript, two folders in one repo.
   - `RecurringShift` (`teamMemberId`, `dayOfWeek` 0-6, optional
     `startTime`/`endTime` HH:mm, `isOff`; unique per member + dayOfWeek) — a
     member's standing weekly hours, one record per weekday.
-  - `WorkShift` (`teamMemberId`, `date` YYYY-MM-DD, `startTime`/`endTime`,
-    `isBreak`, notes) — now just one-off dated breaks, not standing hours.
+  - `Meeting` (title, `startsAt`/`endsAt` as Dates, `attendeeIds[]`,
+    `createdBy`) — the ONE model that stores UTC instants rather than wall-clock
+    strings, because a meeting is a single moment that reads as a different
+    clock per attendee. `attendeeIds` answers "am I in this", `createdBy` only
+    decides who may delete.
 - Auth: JWT in an httpOnly, `sameSite:lax` cookie. `authenticate` +
   `requireAdmin` middleware. Self-service writes trust `req.user.teamMemberId`
   from the JWT, NEVER a client-supplied id — `PATCH /api/team-members/:id/status`
   is the reference pattern to copy.
+- SCHEDULE IDENTITY IS SELF-OWNED, and admin is an OVERRIDE for onboarding and
+  absence. The three fields answering "when am I available" follow it:
+  `status` is self-only, `hours` and `timezone` are self-or-admin. Anything new
+  in that family should follow the same rule rather than inventing a fourth.
 - Routes: `/api/auth` (login/logout/me); `/api/team-members` (writes admin-only
-  except GET, `/:id/status`, and the self-or-admin GET+PUT `/:id/hours`
-  whole-week replace); `/api/recurring-shifts` (GET bulk, any authed user);
-  `/api/work-shifts` (GET any authed user, writes admin-only).
+  except GET, the self-or-admin `PATCH /:id/status` and `PATCH /:id/timezone`,
+  and the self-or-admin GET+PUT `/:id/hours` whole-week replace);
+  `/api/recurring-shifts` (GET bulk, any authed user);
+  `/api/meetings` (GET windowed by `from`/`to`, POST, DELETE — all authed with
+  no admin gate; create requires the caller to be among the attendees unless
+  admin, delete requires organizer-or-admin).
 - Types live in `backend/src/types/index.ts` and are mirrored by hand in
   `frontend/src/types/index.ts` — keep both in sync.
 
@@ -187,30 +217,72 @@ Full-stack TypeScript, two folders in one repo.
 - Routing (`App.tsx`): AuthProvider wraps all; ProtectedRoute gates by session
   then optional role; TeamProvider mounts only after auth. Members ->
   `/dashboard`, admins -> `/admin/schedule` (tabbed Schedule + Manage).
-  ScheduleView is shared by both.
+  ScheduleView is shared by both. `/profile` is the self-service page for both
+  roles (timezone + weekly hours, one `HoursEditor mode="self"`); admins edit
+  someone else's hours at `/members/:id/hours` and their profile fields inline
+  on TeamMemberCard.
 - Context: `AuthContext` (role, teamMemberId, isAuthenticated, login/logout,
   session restore via `/auth/me` on mount). `TeamContext` (members,
-  recurringShifts, loading, setStatus with optimistic update + rollback,
-  deleteMember, refreshAllData). Note `viewerId` in TeamContext is legacy
-  pre-auth "simulate as user" that still drives which timezone the grid
-  previews — known tech debt, see `nextSteps.md`.
+  recurringShifts, meetings, loading, setStatus with optimistic update +
+  rollback, setTimezone, createMeeting, deleteMeeting, deleteMember,
+  refreshAllData, plus the timezone values below). The legacy `viewerId`
+  "simulate as user" was retired 8/7 — the viewer's zone now comes from the
+  browser.
+  `setTimezone` is deliberately NOT optimistic where `setStatus` is: a status
+  click is one sidebar cell, a zone change redraws the whole grid, and
+  optimistically showing a different day then rolling it back is worse than
+  waiting for the round trip.
+
+#### The display/write timezone split — the load-bearing invariant
+
+TeamContext exposes THREE timezone values and they are not interchangeable:
+
+  - `viewerTimezone` — `BROWSER_TIMEZONE || loggedInMember.timezone || 'UTC'`.
+    The viewer's REAL zone.
+  - `previewTimezone` — null by default, set by `TimezonePreview`. In-memory
+    only; a preview is a transient action, not a saved preference.
+  - `displayTimezone` — `previewTimezone ?? viewerTimezone`.
+
+Only ScheduleGrid and TeamHoursPanel may read `displayTimezone`. MeetingPanel's
+wall-clock -> instant conversion and the meetings FETCH WINDOW read
+`viewerTimezone` unconditionally, so a preview can never reinterpret a write.
+Without the split, someone previews Tokyo, books "2pm", and it lands 2pm
+Chicago.
+
+This is a CALL-SITE invariant — no current test can catch swapping one
+identifier for the other, and all 130 would still pass. Treat any edit touching
+those identifiers as high-risk. `BROWSER_TIMEZONE` is read once at module load.
 - ALL shift/timezone logic funnels through `frontend/src/utils/scheduleTime.ts`
   (pure dayjs functions). `getCurrentShiftForMember` resolves a member's
   standing shift for today by the MEMBER's own local weekday, returning a
   working/off/unset resolution; `resolveHourRangeInViewerTz` converts a working
   resolution's hours into the viewer's timezone (anchored to today's date so
-  DST is correct). Plus `isHourInRange`, `formatHourLabel`/`formatHourRange`.
+  DST is correct). Plus `resolveBreakCarveOutInViewerTz` for the standing
+  lunch, `wallClockToInstant` (the meeting-booking half of the split — same
+  wall clock in two zones yields two different instants), `isHourInRange`,
+  `formatHourLabel`/`formatHourRange`/`formatWallClock`.
   This is the single place shift resolution lives — components import it, so a
   shift-model change happens here and every consumer inherits it. Covered by
-  `scheduleTime.test.ts` (Vitest).
+  `scheduleTime.test.ts` (Vitest). `timeOptions.ts` (+ its own tests) builds the
+  select options; shift bounds are hour-only, breaks quarter-hour.
 - `status.ts` holds `STATUS_META` + `SETTABLE_STATUSES`, shared by the sidebar
   and admin card so colors/labels can't drift. `offline` is derived, not
   hand-settable, and guarded on both ends.
-- API base is hardcoded `http://localhost:5000`; every fetch uses
-  `credentials:'include'` to send the auth cookie.
+- Design system: colour/spacing tokens in CSS, `ThemedSelect` + `TimeSelect`
+  wrapping the native select (popup styling behind `@supports`, Chromium-only
+  so far), `buttonClasses` in `utils/ui.ts` — kept out of `Button.tsx` because
+  a module exporting both a component and a plain function breaks hot reload.
+- API base is `API_BASE` from `src/config.ts` (`VITE_API_URL` with a
+  localhost:5000 fallback, baked in at BUILD time, not read at runtime); every
+  fetch uses `credentials:'include'` to send the auth cookie.
 
 ## Current focus
 
-See `nextSteps.md`. Active workstream: the recurring day-of-week shift model
-rework and its dependents (per-member hours page, break logging UI,
-derived-offline status).
+See `nextSteps.md` for what's next, and `docs/decisions.md` for why anything is
+the way it is — every `## COMPLETED` entry and `### DECISION:` block lives
+there, newest first. Read it before changing anything non-obvious.
+
+The recurring-shift rework, meetings, and the 8/8 roadmap (12-hour clock,
+timezone preview, responsive) have all landed. What's left: deploy to
+Render + Atlas, self-owned schedule identity (design only), and jsdom + React
+Testing Library (design only).

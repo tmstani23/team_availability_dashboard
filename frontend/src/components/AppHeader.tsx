@@ -32,14 +32,14 @@ const AppHeader = ({ tabs }: AppHeaderProps) => {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-xl sm:text-3xl font-bold">Team Availability Dashboard</h1>
         <div className="flex items-center gap-2">
-          {/* Every logged-in user has their own hours to manage, admin or
-              not - lives outside the tabs slot since it's not route-specific
-              the way Schedule/Manage are */}
+          {/* Every logged-in user has their own hours and timezone to manage,
+              admin or not - lives outside the tabs slot since it's not
+              route-specific the way Schedule/Manage are */}
           <Link
-            to="/profile/hours"
+            to="/profile"
             className={buttonClasses('secondary', 'md')}
           >
-            My Hours
+            My Profile
           </Link>
           <Button onClick={handleLogout} size="md">
             Logout

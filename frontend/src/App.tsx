@@ -54,11 +54,23 @@ function App() {
               <Route index element={<ScheduleView />} />
             </Route>
 
-            {/* Self-service hours, any authenticated role - reuses
+            {/* Self-service schedule identity, any authenticated role - reuses
                 DashboardLayout purely for its shell (AppHeader, no tabs),
-                nothing dashboard-specific about it */}
+                nothing dashboard-specific about it.
+
+                It's /profile rather than /profile/hours because the page now
+                owns TIMEZONE as well: schedule identity is self-owned, and
+                naming the page for one of the two things it edits was what
+                made timezone look like it belonged to someone else.
+
+                /profile/hours redirects rather than 404ing - it was the live
+                path until now, so bookmarks and the browser's autocomplete
+                both still point at it. Without this it would fall through to
+                the catch-all, which silently bounces you to a dashboard with
+                no hint that the page moved. */}
             <Route path="/profile" element={<DashboardLayout />}>
-              <Route path="hours" element={<HoursEditor mode="self" />} />
+              <Route index element={<HoursEditor mode="self" />} />
+              <Route path="hours" element={<Navigate to="/profile" replace />} />
             </Route>
 
             {/* Layer 2: nested inside layer 1, adds an admin-only check

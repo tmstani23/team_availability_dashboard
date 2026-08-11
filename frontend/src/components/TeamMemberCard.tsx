@@ -14,6 +14,7 @@ import {
 } from '../utils/scheduleTime';
 import { HEARTBEAT_STALE_MS } from '../hooks/useRefreshTick';
 import { inputClasses, buttonClasses } from '../utils/ui';
+import { TIMEZONE_OPTIONS, isCuratedTimezone } from '../utils/timezones';
 import Button from './Button';
 import { API_BASE } from '../config';
 
@@ -208,17 +209,30 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
 
           <div>
             <label className="block text-sm text-ink-muted mb-1">Timezone</label>
+            {/* Options come from TIMEZONE_OPTIONS, not a list written here.
+                This card used to hardcode six zones while AddTeamMemberForm
+                offered eight, so an admin could create a Sydney member and
+                then silently reset them to Eastern by editing their job title:
+                a <select> whose value isn't among its options falls back to
+                the first one. The member's CURRENT zone is appended when it
+                isn't curated, for the same reason.
+
+                Note this field is now an OVERRIDE, not the only way in -
+                members set their own zone on /profile. It stays because
+                onboarding someone who has never logged in still needs it. */}
             <select
               className={inputClass}
               value={editData.timezone}
               onChange={e => setEditData({ ...editData, timezone: e.target.value })}
             >
-              <option value="America/New_York">America/New_York (Eastern)</option>
-              <option value="America/Chicago">America/Chicago (Central)</option>
-              <option value="America/Denver">America/Denver (Mountain)</option>
-              <option value="America/Los_Angeles">America/Los_Angeles (Pacific)</option>
-              <option value="Europe/London">Europe/London</option>
-              <option value="Asia/Tokyo">Asia/Tokyo</option>
+              {(isCuratedTimezone(editData.timezone)
+                ? TIMEZONE_OPTIONS
+                : [...TIMEZONE_OPTIONS, { value: editData.timezone, label: editData.timezone }]
+              ).map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -296,15 +310,19 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
                 {STATUS_META[s].short}
               </button>
             ))}
+            {/* "Edit Profile", not "Edit". Next to "Edit Hours" a bare "Edit"
+                reads as the general one and hours as a special case, when
+                they're two peers: this opens name / timezone / job role, that
+                one opens the week. */}
             <Button
               onClick={() => setIsEditing(true)}
               variant="secondary" size="md"
             >
-              Edit
+              Edit Profile
             </Button>
             {/* Admin override of this member's standing hours - same
-                HoursEditor component as /profile/hours, just targeting
-                their :id instead of the admin's own */}
+                HoursEditor component as the member's own /profile, just
+                targeting their :id instead of the admin's own */}
             <Link
               to={`/members/${member._id}/hours`}
               className={buttonClasses('secondary', 'md')}

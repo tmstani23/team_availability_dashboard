@@ -7,6 +7,7 @@ import { homePathForRole } from '../utils/routes';
 import { API_BASE } from '../config';
 import Button from './Button';
 import TimeSelect from './TimeSelect';
+import TimezoneSection from './TimezoneSection';
 import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -421,8 +422,19 @@ const HoursEditor = ({ mode }: HoursEditorProps) => {
       </Link>
 
       <h2 className="text-2xl font-semibold text-white mb-1">
-        {mode === 'self' ? 'My Hours' : `Editing Hours for ${targetMember?.name ?? '...'}`}
+        {mode === 'self' ? 'My Profile' : `Editing Hours for ${targetMember?.name ?? '...'}`}
       </h2>
+
+      {/* Self mode is a PROFILE page with two sections: the zone your hours are
+          stored in, then the hours themselves. Admin mode stays hours-only -
+          an admin editing someone's zone does it from TeamMemberCard, which
+          keeps that path available for onboarding a member who has never
+          logged in and so has no way to set it themselves. */}
+      {mode === 'self' && <TimezoneSection />}
+
+      {mode === 'self' && (
+        <h3 className="text-lg font-semibold text-white mb-1">Hours</h3>
+      )}
       <p className="text-sm text-ink-muted mb-3">
         Standing weekly hours - these repeat every week until changed.
       </p>

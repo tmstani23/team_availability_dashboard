@@ -251,6 +251,54 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   /**
+   * Change a member's stored timezone. Self-or-admin, enforced by the backend
+   * against the JWT - this passes an id, but the server ignores it in favour
+   * of the token unless the caller is an admin.
+   *
+   * NOT optimistic, deliberately, and this is the interesting difference from
+   * setStatus. A status click is one cell in a sidebar and an instant response
+   * is the whole point. A timezone change RETIMES the member across every
+   * viewer's grid, so optimistically redrawing the schedule and then rolling it
+   * back would flash a wholly different day at the user and then take it away.
+   * A round-trip's wait is the honest cost of a write that big, and it's behind
+   * a Save button where a wait is expected anyway.
+   *
+   * On success the server's updated member is written straight into state
+   * rather than triggering a full refetch: the response IS the new record, and
+   * the grid needs to re-resolve from it immediately.
+   */
+  const setTimezone = async (
+    id: string,
+    timezone: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/team-members/${id}/timezone`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ timezone })
+      });
+
+      const data: unknown = await res.json();
+      if (!res.ok) {
+        const message =
+          typeof data === 'object' && data !== null && 'message' in data
+            ? String((data as { message: unknown }).message)
+            : 'Could not update your timezone';
+        return { success: false, message };
+      }
+
+      setMembers(prev =>
+        prev.map(member => (member._id === id ? (data as TeamMember) : member))
+      );
+      return { success: true };
+    } catch (err) {
+      console.error('Failed to set timezone:', err);
+      return { success: false, message: 'Could not reach the server' };
+    }
+  };
+
+  /**
    * Book a meeting. Takes instants (ISO strings) already - building them from
    * the form's date/time inputs is the form's job, and it happens exactly once
    * there rather than being re-derived here.
@@ -356,7 +404,7 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerTimezone, displayTimezone, previewTimezone, setPreviewTimezone, browserTimezone: BROWSER_TIMEZONE, now }}>
+    <TeamContext.Provider value={{ members, recurringShifts, meetings, loading, setStatus, setTimezone, createMeeting, deleteMeeting, deleteMember, refreshAllData, handleMemberAdded, viewerTimezone, displayTimezone, previewTimezone, setPreviewTimezone, browserTimezone: BROWSER_TIMEZONE, now }}>
       {children}
     </TeamContext.Provider>
   );

@@ -35,9 +35,13 @@ const TeamStatusSidebar = () => {
   const { members, recurringShifts, meetings, setStatus, viewerTimezone, browserTimezone, now } = useTeam();
   // Who is ACTUALLY logged in. Drives both the status picker (you can only set
   // your own) and the identity block below - it must match the identity the
-  // backend trusts from the JWT. `role` only decides the WORDING of the
-  // timezone-mismatch hint, since who can fix a stored zone differs by role.
-  const { teamMemberId, role } = useAuth();
+  // backend trusts from the JWT.
+  //
+  // `role` used to be pulled in alongside, purely to word the timezone-mismatch
+  // hint differently for admins ("update it in Manage") and members ("ask an
+  // admin"). Both now go to the same self-service page, so there's nothing left
+  // for it to decide here.
+  const { teamMemberId } = useAuth();
 
   // The logged-in member's own record, for the identity block. Undefined while
   // members are still loading, and legitimately undefined forever for a badge
@@ -149,14 +153,22 @@ const TeamStatusSidebar = () => {
 
             Only ever shown here, never on another member's roster row - the
             browser zone is a fact about THIS device, so the disagreement is
-            undetectable for anyone else. Wording is role-aware because who can
-            fix it differs: timezone is an admin-editable profile field. */}
+            undetectable for anyone else.
+
+            This LINKS now, and no longer varies by role. It used to end in
+            "ask an admin to update it" for a member and "update it in Manage"
+            for an admin, because timezone was an admin-only profile field and
+            a member genuinely had nowhere to go. Schedule identity being
+            self-owned is what turns the hint from a name for the problem into
+            a route to the fix - and it's the same route for both roles now,
+            so the role-aware wording had nothing left to distinguish. */}
         {storedZoneDiffers && loggedInMember && (
           <div className="mt-2 text-[11px] text-away leading-snug">
-            Your profile says {formatTimezoneLabel(loggedInMember.timezone)}
-            {role === 'admin'
-              ? ' — update it in Manage if that is wrong.'
-              : ' — ask an admin to update it if that is wrong.'}
+            Your profile says {formatTimezoneLabel(loggedInMember.timezone)} —{' '}
+            <Link to="/profile" className="underline hover:text-white transition-colors">
+              update it
+            </Link>{' '}
+            if that is wrong.
           </div>
         )}
       </div>
@@ -268,7 +280,7 @@ const TeamStatusSidebar = () => {
                   {resolution.state === 'unset' && (
                     isSelf ? (
                       <Link
-                        to="/profile/hours"
+                        to="/profile"
                         className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium border bg-away/15 text-away border-away hover:bg-away/25 transition-colors"
                       >
                         Hours not set — set now

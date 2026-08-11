@@ -183,6 +183,67 @@ router.patch('/:id/status', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// PATCH update a team member's own timezone - self-or-admin, same shape as
+// the status route above and for the same reason: a narrow single-field route
+// can't be used as a backdoor around the admin-only full-profile PUT.
+//
+// WHY THIS EXISTS AT ALL: timezone used to be admin-only, not by decision but
+// by accident - it arrived as part of the member profile (name/role/timezone)
+// on TeamMemberCard. It's the field with the worst failure mode of the three,
+// since a stale zone misreports someone to the entire team until an admin
+// notices. Schedule identity is self-owned; admin stays an override for
+// onboarding someone who has never logged in.
+router.patch('/:id/timezone', authenticate, async (req: AuthRequest, res) => {
+  try {
+    // Trust the JWT's teamMemberId, never a client-supplied id - otherwise any
+    // logged-in member could target someone else's :id and retime them for the
+    // whole team.
+    const isOwnProfile = req.user?.teamMemberId === req.params.id;
+    const isAdmin = req.user?.role === 'admin';
+
+    if (!isOwnProfile && !isAdmin) {
+      return res.status(403).json({ message: 'You can only update your own timezone' });
+    }
+
+    const { timezone } = req.body;
+
+    if (typeof timezone !== 'string' || !timezone.trim()) {
+      return res.status(400).json({ message: 'timezone is required' });
+    }
+
+    // Validate against REAL IANA data rather than the frontend's curated list.
+    // Intl.DateTimeFormat throws a RangeError on an unknown zone, and it's the
+    // same database dayjs.tz resolves against - so anything that passes here is
+    // guaranteed convertible later. Checking the curated list instead would
+    // reject zones that are perfectly valid and break the moment someone adds
+    // an option to the UI, which is backwards: the list is a convenience, this
+    // is the boundary.
+    //
+    // The stakes are higher than a normal bad-input case. An unresolvable zone
+    // stored here doesn't fail loudly - it poisons every shift conversion for
+    // this member on every viewer's grid.
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    } catch {
+      return res.status(400).json({ message: `Unknown timezone: ${timezone}` });
+    }
+
+    const updated = await TeamMemberModel.findByIdAndUpdate(
+      req.params.id,
+      { timezone, lastUpdated: new Date() },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ message: 'Error updating timezone' });
+  }
+});
+
 // GET one member's weekly hours (any logged-in user), sorted by weekday.
 router.get('/:id/hours', authenticate, async (req, res) => {
   try {

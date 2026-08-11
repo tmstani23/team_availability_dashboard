@@ -1,32 +1,33 @@
 # Next Steps
 
-Last updated: 2026-08-08
+Last updated: 2026-08-11
 
 ## START HERE NEXT SESSION
 
-THE ROADMAP IS DOWN TO DEPLOY. Items 1-3 (12-hour clock, timezone preview,
-responsive/mobile) all landed 8/8 and are browser-verified - see
-`docs/decisions.md`. So is the select rework and the `wallClockToInstant`
-extraction. Lint is clean for the first time since the 8/7 design pass.
+TWO ITEMS LEFT. Schedule identity landed 8/11 (see `docs/decisions.md`), which
+took the roadmap down to deploy and the component tests.
 
-What's left, in no forced order:
-
-1. DEPLOY to Render + Atlas. The only remaining item from the original
+1. JSDOM + REACT TESTING LIBRARY - design settled, not built. See the DECISION
+   block below. Four tests, not coverage. Mostly config wiring once the
+   thinking is read, so a lower model is fine. jsdom and RTL are ONE item, not
+   two: jsdom is the fake DOM that lets components render in Node, RTL is what
+   queries them.
+2. DEPLOY to Render + Atlas. The only remaining item from the original
    roadmap. Research is in `docs/decisions.md`; possible any time since Phase
    0. Left last because deploy is when a real second person gets involved.
-2. SCHEDULE IDENTITY IS SELF-OWNED - design settled, not built. See the
-   DECISION block below. Moves timezone editing out of admin-only and into
-   `/profile/hours`, which is what lets the sidebar's mismatch hint become a
-   link instead of a shrug. Touches auth boundaries and probably a route
-   rename, so give it its own session and a higher model.
-3. JSDOM + REACT TESTING LIBRARY - design settled, not built. See the DECISION
-   block below. Four tests, not coverage. Mostly config wiring once the
-   thinking is read, so a lower model is fine.
 
-(2) and (3) are independent of each other and of deploy. (3) is the one that
-protects work already done: nothing currently stops a refactor from swapping
-`viewerTimezone` for `displayTimezone` in MeetingPanel, and every one of the
-130 tests would still pass while meetings booked in the wrong zone.
+(1) is listed first now, and the 8/11 session is why. It added `TimezoneSection`
+and a `setTimezone` context write with no component coverage at all, and left
+the new route's 403 unverified in both directions - there's no backend runner,
+and nothing in the UI can reach that path. So the untested surface GREW. It
+remains the item that protects work already done: nothing stops a refactor from
+swapping `viewerTimezone` for `displayTimezone` in MeetingPanel, and all 139
+tests would still pass while meetings booked in the wrong zone.
+
+CARRIED FORWARD, unverified: the self-or-admin check on
+`PATCH /api/team-members/:id/timezone`. Both directions - a member being
+REFUSED someone else's id, and an admin being ALLOWED it. Two devtools fetches
+if someone wants it before the test work lands.
 
 QA STATUS 8/8 (Tim, browser): 12-hour labels throughout; the grid reachable and
 scrollable at narrow widths with the name column pinned; sidebar stacking; the
@@ -101,16 +102,22 @@ THE CASE, and it's already written down: every bug this project has found in QA
 lived in the seam between React state and the network - the status rollback
 writing `undefined`, the hours-editor fetch race, the state bleed between
 members (all 8/2). Pure-function tests structurally cannot reach that seam.
-The suite is 130 green tests that would not have caught a single one of them.
+The suite is 139 green tests that would not have caught a single one of them.
 
 THE SHARPER REASON, new on 8/8: the timezone preview introduced a DISPLAY /
 WRITE split (see the preview DECISION above). `wallClockToInstant` is now
 tested and pins that the same wall clock in two zones yields two different
 instants - but no test can assert that MeetingPanel passes `viewerTimezone`
 rather than `displayTimezone`. That is a CALL-SITE invariant. Someone
-refactoring for consistency swaps one identifier, all 130 tests still pass, and
+refactoring for consistency swaps one identifier, all 139 tests still pass, and
 every meeting starts booking in the previewed zone. The invariant this session
 was built around is the one thing the current suite cannot hold.
+
+REINFORCED 8/11: the self-owned timezone work added `TimezoneSection` and a
+`setTimezone` context write, neither covered by anything. `timezones.test.ts`
+pins the LIST as data but cannot touch the select that renders it - which is
+test #3's territory - and the optimistic-rollback gap in #4 now has a sibling,
+since `setTimezone` deliberately isn't optimistic and nothing asserts that.
 
 SCOPE, deliberately four tests rather than coverage:
   1. MeetingPanel books in the viewer's zone while a preview is active
@@ -144,64 +151,6 @@ unit-testing the fallback chain directly needs the TZ env var set before the
 process starts, not per-test. Fine for the four above; a trap for anyone going
 further without refactoring that constant first.
 
-### DECISION: schedule identity is self-owned (8/8, design only)
-
-Raised while asking a blunter question: why does `/profile/hours` exist at all
-if an admin can already edit anyone's hours? Isn't one of them redundant?
-
-They're not - admin-edit covers onboarding someone who has never logged in
-(unset hours are the whole reason FirstRunHoursGate exists) and fixing someone
-who's unreachable. One `HoursEditor` with a `mode: 'self' | 'admin'` flag
-serves both against one self-or-admin route, so there's no duplicated
-implementation either.
-
-But the question exposed something real. The THREE fields that all answer
-"when am I available" have three different permission rules, and no principle
-connecting them:
-
-  - `status`   - self only. An admin cannot set yours.
-  - `hours`    - self OR admin.
-  - `timezone` - ADMIN ONLY. There is no self-service editor at all.
-
-Nobody chose that spread; it accumulated. Timezone ended up admin-only because
-it arrived as part of the member PROFILE (name / role / timezone on
-TeamMemberCard), not because anyone decided a person shouldn't own their own
-zone - and it's the one with the worst consequence, since a stale timezone
-misreports someone to the entire team until an admin notices.
-
-THE PRINCIPLE, proposed: schedule identity is SELF-OWNED, and admin is an
-OVERRIDE for onboarding and absence. Status already follows it. Hours already
-follow it. Timezone is the outlier, and moving it into `/profile/hours` is what
-makes the rule true rather than mostly-true.
-
-WHAT THIS UNBLOCKS, and the reason it's worth doing rather than just tidy: the
-sidebar's timezone-mismatch hint currently NAMES the disagreement instead of
-offering a fix ("ask an admin to update it if that is wrong"), and the existing
-known-issues entry says outright that the hint should become a link if
-self-service is ever added. It can't link anywhere today because there is
-nothing to link to. So this is the missing half of a feature that already
-shipped, not a new one.
-
-REJECTED, deleting `/profile/hours` instead: it collapses the permission
-question the wrong way. Making hours admin-only to match timezone means a
-member can't correct their own schedule, which is the opposite of where status
-already landed, and it would make FirstRunHoursGate incoherent - a gate
-prompting you to set hours you aren't allowed to set.
-
-OPEN, for whoever builds it:
-  - Does the admin's TeamMemberCard KEEP its timezone field, or lose it? Keep
-    is the safer default (onboarding still needs it), but then two surfaces
-    write one field and they have to agree.
-  - `/profile/hours` is named for hours. Adding timezone makes it a profile
-    page wearing an hours name - worth deciding whether it becomes
-    `/profile`, with hours as one section.
-  - Changing your own timezone RETIMES you for the whole team, unlike changing
-    your own status. That asymmetry probably deserves a confirmation step or
-    at least a plain warning, which status never needed.
-
-SESSION NOTE: this touches auth boundaries and a route rename, so it wants its
-own session rather than riding along with UI polish.
-
 ### 4 — DEPLOY to Render + Atlas
 
 See the deployment research in `docs/decisions.md`. Could happen any time
@@ -210,12 +159,14 @@ gets involved.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
-- There is NO self-service timezone editor. `TeamMember.timezone` is only
-  editable by an admin, via TeamMemberCard on `/admin/manage`; `/profile/hours`
-  doesn't touch it. This is why the identity block's mismatch hint NAMES the
-  disagreement rather than linking to a fix (see `docs/decisions.md`, 8/7).
-  NOW HAS A PLAN, 8/8: see `### DECISION: schedule identity is self-owned`
-  above. Fixing it is what turns that hint into a link.
+- TIMEZONE NOW HAS TWO WRITING SURFACES: the member's own `/profile` and the
+  admin's TeamMemberCard. Accepted deliberately on 8/11 rather than collapsed -
+  the admin path is the override for onboarding someone who has never logged
+  in - but it is two forms writing one field, so a change to how a zone is
+  validated or presented has to land in both. They share `TIMEZONE_OPTIONS`
+  and the same route, which is what keeps them honest.
+  (This entry replaces "there is NO self-service timezone editor", which was
+  the known issue here until 8/11.)
 - A timezone PREVIEW draws meetings from a fetch it doesn't control. The
   meetings request is scoped to the VIEWER's local day (deliberately - a
   display control must not change what the app requests), but ScheduleGrid

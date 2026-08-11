@@ -24,6 +24,195 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — Schedule identity is self-owned (8/11)
+
+Builds the DECISION block below, unchanged from its design once the three
+questions it left open were answered (also below). `status` was deliberately
+NOT touched - it stays self-only.
+
+**Backend.** New `PATCH /api/team-members/:id/timezone`, self-or-admin, copied
+from `PATCH /:id/status` down to trusting `req.user.teamMemberId` from the JWT
+rather than the `:id` in the URL. Validation runs through
+`Intl.DateTimeFormat`, which throws on an unknown zone, rather than checking
+the frontend's curated list - the list is a UI convenience and would reject
+zones that are perfectly valid. The stakes are higher than a normal bad-input
+case: an unresolvable zone doesn't fail loudly, it poisons every shift
+conversion for that member on every viewer's grid.
+
+**Frontend.** `setTimezone` in TeamContext, deliberately NOT optimistic, which
+is the interesting difference from `setStatus`. A status click is one sidebar
+cell and instant feedback is the point; a timezone change RETIMES the member
+across every viewer's grid, so optimistically redrawing the schedule and then
+rolling it back would flash a wholly different day and take it away. It's
+behind a Save button where a round trip is expected anyway. On success the
+server's updated member goes straight into state rather than triggering a
+refetch - the response IS the new record.
+
+New `TimezoneSection` on the profile page, above the week grid. The placement
+is the argument: `09:00` is meaningless without the zone it's in, and self mode
+already SKIPPED the timezone context panel admin mode shows, on the grounds
+that "times are in your local time" is noise on your own page - which is
+exactly the assumption a stale stored zone breaks.
+
+`/profile/hours` became `/profile`, with the old path kept as a redirect.
+Without it, an old bookmark falls through to the catch-all, which silently
+bounces you to a dashboard with no hint the page moved. AppHeader's link is now
+"My Profile"; FirstRunHoursGate's suppression path widened to match.
+
+**The payoff.** The sidebar's timezone-mismatch hint LINKS now instead of
+naming the disagreement and shrugging. It also stopped being role-aware: the
+wording used to split between "update it in Manage" for an admin and "ask an
+admin" for a member, and with both roles going to the same page there was
+nothing left for `role` to decide. That left the binding unused and lint caught
+it - a nice case of the design change showing up as dead code.
+
+**FOUND ON THE WAY, and it was a live bug, not tidying.** There were TWO
+hardcoded timezone lists and they had drifted: AddTeamMemberForm offered eight
+zones, TeamMemberCard six, missing Paris and Sydney. A `<select>` whose value
+isn't among its options renders the FIRST option instead - so an admin editing
+a Sydney member's job title would silently reset them to Eastern, a field they
+never touched, on a form that looked correct. Both now read
+`utils/timezones.ts`, and a stored zone outside the curated list gets appended
+as an extra option rather than dropped. Adding a third list for the profile
+page is what surfaced it.
+
+Drive-by: TeamMemberCard's "Edit" button is now "Edit Profile". Next to "Edit
+Hours" a bare "Edit" read as the general case with hours as a special one, when
+they're peers.
+
+VERIFIED 8/11 (Tim, browser + lint + tsc both halves + 139 util tests):
+setting your own zone to Sydney from a Chicago browser, with the grid drawing
+you 6PM-2AM Chicago (Sydney is +15 in August) and 9AM-5PM when previewing
+Sydney, while the Compare pills and MeetingPanel stayed on Chicago throughout -
+the display/write split surviving a change to the underlying stored zone. The
+mismatch hint's link, the `/profile/hours` redirect, and the drift bug tested
+against Tim Doe specifically: changed his job role only, Sydney survived.
+
+NOTE on that last one, because it nearly went untested: the first attempt used
+michael jordan, who is `America/New_York` - the FIRST option in the list, and
+therefore the one zone that looks correct even when the bug is live. A test
+subject has to be a value that can actually fail.
+
+NOT COVERED BY QA, deliberately carried forward: the 403 path. Nothing in the
+UI can reach it (a member has no control that targets someone else's id), so it
+needs a devtools fetch, and it wasn't run. With no backend test runner either,
+the self-or-admin check on this route is currently unverified in both
+directions - the refusal AND the admin override. It is the highest-risk code
+added this session.
+
+New `timezones.test.ts` (9 tests, suite now 139) covers the list as DATA: no
+duplicates, every zone valid per `Intl` AND convertible via `dayjs.tz` (a value
+can pass one and fail the other), Sydney and Paris explicitly present, and
+`isCuratedTimezone` matching exactly - lowercase `australia/sydney` must read
+false, since Intl rejects that casing and treating it as curated would let an
+unconvertible value through. What it CANNOT reach is the select rendering
+itself, which needs a DOM and is test #2 in the jsdom block.
+
+### DECISION: schedule identity is self-owned (8/8, scoped 8/11, built 8/11)
+
+Raised while asking a blunter question: why does `/profile/hours` exist at all
+if an admin can already edit anyone's hours? Isn't one of them redundant?
+
+They're not - admin-edit covers onboarding someone who has never logged in
+(unset hours are the whole reason FirstRunHoursGate exists) and fixing someone
+who's unreachable. One `HoursEditor` with a `mode: 'self' | 'admin'` flag
+serves both against one self-or-admin route, so there's no duplicated
+implementation either.
+
+But the question exposed something real. The THREE fields that all answer
+"when am I available" have three different permission rules, and no principle
+connecting them:
+
+  - `status`   - self only. An admin cannot set yours.
+  - `hours`    - self OR admin.
+  - `timezone` - ADMIN ONLY. There is no self-service editor at all.
+
+Nobody chose that spread; it accumulated. Timezone ended up admin-only because
+it arrived as part of the member PROFILE (name / role / timezone on
+TeamMemberCard), not because anyone decided a person shouldn't own their own
+zone - and it's the one with the worst consequence, since a stale timezone
+misreports someone to the entire team until an admin notices.
+
+THE PRINCIPLE: schedule identity is SELF-OWNED, and admin is an OVERRIDE for
+onboarding and absence. Status already follows it. Hours already follow it.
+Timezone was the outlier, and moving it into the profile page is what makes the
+rule true rather than mostly-true.
+
+WHAT THIS UNBLOCKED, and the reason it was worth doing rather than just tidy:
+the sidebar's timezone-mismatch hint NAMED the disagreement instead of offering
+a fix ("ask an admin to update it if that is wrong"), and the known-issues
+entry said outright that the hint should become a link if self-service were
+ever added. It couldn't link anywhere because there was nothing to link to. So
+this was the missing half of a feature that had already shipped.
+
+REJECTED, deleting `/profile/hours` instead: it collapses the permission
+question the wrong way. Making hours admin-only to match timezone means a
+member can't correct their own schedule, which is the opposite of where status
+already landed, and it would make FirstRunHoursGate incoherent - a gate
+prompting you to set hours you aren't allowed to set.
+
+RESOLVED 8/11 - the editor lives on the self hours page, and the route becomes
+`/profile`. Naming the page for one of the two things it edits was part of what
+made timezone look like it belonged to someone else.
+
+RESOLVED 8/11 - the admin's TeamMemberCard KEEPS its timezone field.
+Onboarding someone who has never logged in still needs it, same reason
+FirstRunHoursGate exists. Two surfaces then write one field, accepted because
+they hit the same route and the backend is what enforces who may write.
+
+RESOLVED 8/11 - a plain WARNING next to the control, not a confirmation step.
+Changing your own timezone retimes you for the whole team, which changing your
+own status does not, so the asymmetry gets said out loud. But a confirm dialog
+is friction on a FIX: this is the control someone reaches for when something is
+already wrong, and confirming twice punishes the repair rather than the
+mistake.
+
+ALSO SETTLED, on whether the admin card's "Edit Profile" and "Edit Hours"
+should merge into one button now that the self page merged them: NO. They look
+like peers but they're different shapes of edit - profile expands three fields
+inline on the card, hours is 7 days x 6 controls and needs a full page.
+Merging costs the fast inline tweak, which is the common admin action. The self
+page merges them because it's already a full page, so there's no cost there;
+the asymmetry tracks the surface. The coherent alternative, if it ever nags, is
+an admin `/members/:id/profile` mirroring the self page with inline editing
+dropped from the card entirely.
+
+## COMPLETED — Sticky column border removed; CLAUDE.md refreshed (8/11)
+
+Small, but the border one is a nice example of a fix making things worse before
+it made them better.
+
+**The dashed line.** ScheduleGrid's sticky name column carried `border-r` on
+each name CELL. Every row is its own grid container with a 6px vertical margin,
+so the border existed only where a row did and the gaps showed through - it
+read as a dashed line rather than an edge.
+
+First fix drew it ONCE as an absolutely-positioned rule outside the scrollport
+(outside deliberately: position it inside and it scrolls away from the sticky
+column it's edging). That INVERTED the problem instead of solving it. The
+sticky cells are `z-10` and the wrapper set no z-index, so it created no
+stacking context and the cells painted OVER the rule, hiding it everywhere a
+row existed and leaving it visible only in the margins between them. Still
+dashed, just offset. `z-20` fixed that.
+
+Then it came out entirely, which was the right call: the column has no edge on
+its LEFT, so a hard rule on the right alone just looked lopsided. `bg-surface`
+on the sticky cells was already carrying the whole "this is pinned" affordance.
+Net change is one deleted class - the comment left behind records that the
+continuous version was tried, so nobody re-adds it in six months for the
+reason it was there originally.
+
+**CLAUDE.md.** It had gone stale in ways that would actively mislead a fresh
+chat: it still described `viewerId` as live tech debt (retired 8/7), didn't
+mention the Meeting model or `/api/meetings` at all, still said the API base
+was hardcoded, and - worst - said nothing about the display/write timezone
+split, which is the most load-bearing invariant in the codebase. Now has its
+own section saying so, including that it's a CALL-SITE invariant no current
+test can catch. Current focus rewritten to point at the three remaining items.
+
+VERIFIED 8/11 (Tim, browser): line gone, name column still reads as pinned
+while scrolling on the strength of the opaque background alone.
+
 ## COMPLETED — Roadmap items 1-3: 12-hour clock, timezone preview, responsive (8/8)
 
 The whole remaining roadmap except deploy, in one session. Committed together

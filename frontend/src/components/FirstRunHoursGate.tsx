@@ -25,7 +25,7 @@ const FirstRunHoursGate = () => {
   if (authLoading || teamLoading || dismissed || !teamMemberId) return null;
 
   // Pointless (and in the way) on the page it's telling you to go to.
-  if (pathname.startsWith('/profile/hours')) return null;
+  if (pathname.startsWith('/profile')) return null;
 
   const hasAnyHours = recurringShifts.some(s => shiftMemberId(s) === teamMemberId);
   if (hasAnyHours) return null;
@@ -39,7 +39,7 @@ const FirstRunHoursGate = () => {
       </p>
       <div className="flex gap-2">
         <Link
-          to="/profile/hours"
+          to="/profile"
           onClick={() => setDismissed(true)}
           className={buttonClasses('primary', 'sm')}
         >
