@@ -24,6 +24,135 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — Backend validation tests (8/12)
+
+Builds the DECISION block below, unchanged from its design. First tests the
+backend has ever had.
+
+**What landed.** Vitest in `backend/`, with `test` / `test:run` scripts matching
+the frontend's and no config file - the defaults already give the node
+environment and pick up `src/**/*.test.ts`. Two test files, 66 tests:
+`shiftValidation.test.ts` (41) and `meetingValidation.test.ts` (25). No
+production code changed.
+
+**What they cover.** On the shift side: `parseHHmm` rejecting rather than
+coercing (wrong shape, out-of-range, non-string, and the well-formed-but-
+impossible `99:99`), `durationMinutes` wrapping past midnight instead of going
+negative, overnight shifts being accepted, the hour-only rule for shifts and the
+quarter-hour rule for breaks, break containment measured as an offset from the
+shift's own start so a 23:45-00:15 lunch inside a 20:00-05:00 shift stays legal,
+and `validateDayEntry` reporting the shift problem before the break problem. On
+the meeting side: `parseInstant` normalizing an explicit offset to the same
+instant as `Z` while REJECTING a bare wall clock with no offset, duplicate
+attendees collapsing rather than erroring, the 15-minute floor and 12-hour
+ceiling at their exact boundaries, and title trimming and length.
+
+**Verified by mutation, not by going green.** 66 passing on the first run is the
+result that means nothing, so the source was deliberately broken in the
+throwaway copy to check the suite noticed. Plain subtraction in
+`durationMinutes` (killing the overnight wrap) produced 5 failures; dropping
+`parseHHmm`'s range check, 1; dropping `parseInstant`'s `Number.isFinite` guard,
+1; making the timezone offset optional, 2; disabling break containment, 2;
+removing the 15-minute floor, 1. Worth doing every time - it's the step that
+distinguishes a suite that holds the code from one that merely runs.
+
+**TWO REDUNDANT BRANCHES FOUND, and left in place deliberately.** One mutation
+survived: disabling the FIRST clause of the break containment check
+(`startOffset >= shiftLength`) changed no result. That's a property of the code
+rather than a gap in the tests - reaching it requires
+`endOffset > startOffset >= shiftLength`, which the second clause already
+catches. Brute-forcing every quarter-hour pair against both a same-day and an
+overnight shift finds zero inputs that trip it alone. Its sibling is
+`validateShiftTimes`' `'shift must be at least 1 hour long'`, unreachable
+because once both times are on the hour the duration is a multiple of 60, so
+it's either 0 (caught above) or at least 60.
+
+Both are harmless defensive code, so neither was touched - deleting working
+guards to satisfy a coverage argument is how a real one gets removed by mistake
+later. Both are documented in comments beside the relevant tests instead, so
+nobody hunts for a test that isolates them or assumes removing them is a
+behaviour change.
+
+VERIFIED 8/12 (Tim, `npm run test:run` in `backend/`): 66 passing. `tsc --noEmit`
+clean on both halves. No browser QA - no runtime code changed.
+
+STILL NOT COVERED, and the DECISION block says why: route handlers and every
+auth guard including the self-or-admin 403 carried forward from 8/11, anything
+asserting a write actually landed, `RecurringShift`'s unique compound index, and
+the React-state/network seam that the jsdom block owns.
+
+### DECISION: backend validation tests (8/12, built 8/12)
+
+Came out of a blunt question - shouldn't the backend have the test coverage the
+frontend has? - and the answer turned on what the frontend's suite actually is.
+
+THE PARITY FRAMING IS WRONG, and worth saying so before anyone tries to port a
+standard across. The frontend's 139 tests are not coverage; they are 139 tests
+of PURE FUNCTIONS - `scheduleTime.ts`, `timeOptions.ts`, `timezones.ts`,
+`status.ts`. There are zero component tests and zero integration tests. That
+suite is deep in exactly one place because that place is timezone math, where a
+wrong answer compiles, passes every same-timezone test, and is wrong only for
+other people. It is a targeted response to one hard problem, not a bar to meet.
+
+THE BACKEND HAS THE SAME SHAPE OF CODE, which is the part that was missed for
+months - including in the first pass at this question, where the backend's hard
+parts were assumed to be permission rules:
+
+  - `utils/shiftValidation.ts` - 183 lines, ZERO imports. `parseHHmm`,
+    `durationMinutes`, `validateShiftTimes`, `validateBreakTimes`,
+    `validateDayEntry`.
+  - `utils/meetingValidation.ts` - 119 lines, imports only mongoose (for
+    `isValidObjectId`). `parseInstant`, `normalizeAttendeeIds`,
+    `validateMeetingInput`.
+
+About 300 lines of deterministic logic with no Express, no database, no auth.
+Structurally identical to `scheduleTime.ts`, and testable with nothing but a
+runner.
+
+WHY THESE SPECIFICALLY, rather than because they're convenient: `parseHHmm`
+takes `unknown` straight off the wire, and `durationMinutes` does wraparound
+arithmetic where a same-day subtraction would give a negative. That is the same
+failure family as the two `wallClockToInstant` bugs found on 8/8 - including
+dayjs rolling `99:99` into a date four days later while reporting
+`isValid() === true`. `parseInstant` guards the identical hole from the other
+side, and `validateBreakTimes` reasons in offsets from the shift's own start
+specifically so an overnight lunch (23:45-00:15 inside a 20:00-05:00 shift)
+stays legal. Every one of those is a silent-wrong-answer risk, not a crash.
+
+RUNNER: Vitest in `backend/`, matching the frontend, with no config file -
+the frontend doesn't have one either, and Vitest's defaults already run in the
+node environment and pick up `src/**/*.test.ts`. Tests import `describe`/`it`/
+`expect` from `vitest` explicitly rather than relying on globals, same as the
+frontend's do.
+
+WHY NOT JEST, since an earlier pass at this leaned that way: the Jest question
+only existed because Supertest has to import the Express app, and that drags in
+native `bcrypt`, which can't load in the Linux sandbox against Windows-installed
+binaries. Pure validation imports nothing native, so the constraint dissolves
+and consistency with the frontend wins. No `bcryptjs` swap, no `app.ts` split,
+no database decision - all three were costs of the route-testing path, not this
+one.
+
+EXPLICITLY OUT OF SCOPE, so nobody reads this entry as "the backend is tested":
+
+  - Route handlers, and therefore every auth guard including the self-or-admin
+    403 carried forward from 8/11. Those need Supertest, which needs the app
+    split and the bcrypt problem solved.
+  - Anything asserting a write actually LANDED. With no database in play these
+    tests cannot see Mongoose at all, and mocking it only proves the route
+    called the mock correctly.
+  - `RecurringShift`'s unique compound index, which is real behaviour no
+    unit test exercises.
+
+The 403 stays what it was: two devtools fetches, cheap, and worth doing on its
+own. Deliberately NOT bundled in here - it needs a running server and a logged-
+in browser, so folding it into a test-writing session would just block the
+session on a manual step.
+
+WHAT IT DOESN'T BUY: nothing here touches the seam between React state and the
+network, where all three bugs from 8/2 lived. That seam is the jsdom block's
+territory and stays uncovered until that lands.
+
 ## COMPLETED — Schedule identity is self-owned (8/11)
 
 Builds the DECISION block below, unchanged from its design once the three

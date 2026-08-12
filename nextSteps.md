@@ -4,17 +4,21 @@ Last updated: 2026-08-11
 
 ## START HERE NEXT SESSION
 
-TWO ITEMS LEFT. Schedule identity landed 8/11 (see `docs/decisions.md`), which
-took the roadmap down to deploy and the component tests.
+Schedule identity landed 8/11 and the backend validation tests landed 8/12 (both
+in `docs/decisions.md`). TWO ITEMS LEFT, and only one of them is certain:
 
-1. JSDOM + REACT TESTING LIBRARY - design settled, not built. See the DECISION
-   block below. Four tests, not coverage. Mostly config wiring once the
-   thinking is read, so a lower model is fine. jsdom and RTL are ONE item, not
-   two: jsdom is the fake DOM that lets components render in Node, RTL is what
+1. JSDOM + REACT TESTING LIBRARY - design settled, not built, and now DEFERRED
+   pending a call on whether it happens at all. See the DECISION block below,
+   including the ALTERNATIVES section on protecting the display/write split
+   without it. Four tests, not coverage. Mostly config wiring once the thinking
+   is read, so a lower model is fine. jsdom and RTL are ONE item, not two:
+   jsdom is the fake DOM that lets components render in Node, RTL is what
    queries them.
 2. DEPLOY to Render + Atlas. The only remaining item from the original
    roadmap. Research is in `docs/decisions.md`; possible any time since Phase
    0. Left last because deploy is when a real second person gets involved.
+   Note `backend/` has no build script yet - only `dev` and `test` - so
+   producing `dist/` is part of this item, not something that already works.
 
 (1) is listed first now, and the 8/11 session is why. It added `TimezoneSection`
 and a `setTimezone` context write with no component coverage at all, and left
@@ -85,14 +89,22 @@ preview, responsive) are all DONE. Phase briefs are in docs/phases/ and what
 actually landed is in `docs/decisions.md` - the at-a-glance summaries that used
 to sit here were describing finished work.
 
-Two DECISION blocks below are DESIGN ONLY - settled, not built. They live here
-rather than in `docs/decisions.md` because they're inputs to work that hasn't
-happened yet; they move across with the COMPLETED entry they produce. The
-timezone-preview block that used to sit here made exactly that trip on 8/8.
+ONE DECISION block below is DESIGN ONLY - settled, not built. It lives here
+rather than in `docs/decisions.md` because it's an input to work that hasn't
+happened yet; it moves across with the COMPLETED entry it produces. The
+timezone-preview block that used to sit here made exactly that trip on 8/8, and
+the backend-validation block made it on 8/12.
 
 What remains is below.
 
 ### DECISION: add jsdom + React Testing Library (8/8, design only)
+
+STATUS 8/12: still design only, and now explicitly DEFERRED pending a call on
+whether it happens at all. The backend validation tests were split out into
+their own block above and built first - they're cheaper, carry no design risk,
+and needed none of this block's setup. This one is unchanged in scope; what
+changed is that it is no longer the default next thing. See ALTERNATIVES at the
+end for what protects the display/write split if the answer turns out to be no.
 
 The test roadmap at the bottom of this file has listed frontend component tests
 as "planned" since 7/20. This is the argument for actually doing it, and the
@@ -150,6 +162,32 @@ ALSO NOTE: `BROWSER_TIMEZONE` is read once at module load in TeamContext, so
 unit-testing the fallback chain directly needs the TZ env var set before the
 process starts, not per-test. Fine for the four above; a trap for anyone going
 further without refactoring that constant first.
+
+ALTERNATIVES if this never gets built (raised 8/12). Tests #3 and #4 have no
+substitute and would simply stay uncovered - they're nice, not load-bearing.
+Tests #1 and #2 are the display/write split, and that one has two cheaper
+protections worth knowing about:
+
+  - BRANDED TYPES, and this is arguably STRONGER than the test it replaces.
+    Give the two zones distinct nominal types (`string & { __brand: 'viewer' }`
+    vs `'display'`) and have `wallClockToInstant` accept only the viewer one.
+    The swap then stops compiling. A test catches it at the two call sites
+    someone thought to test; the type catches it everywhere, including call
+    sites that don't exist yet - which turns the CALL-SITE invariant CLAUDE.md
+    describes as untestable into one the compiler holds. COST: a cast helper
+    at every boundary where a zone string enters (the browser API, context, the
+    API response), so it buys safety in the middle by adding friction at the
+    edges. Roughly an hour, touching the most load-bearing code in the
+    codebase, so it deserves its own pass rather than a drive-by.
+  - AN ESLINT RULE - `no-restricted-syntax` banning the `displayTimezone`
+    identifier inside MeetingPanel and the meetings fetch window. Crude, tests
+    no behaviour, and brittle if those files are renamed, but it's about twenty
+    lines and closes precisely the hole.
+
+Neither reaches the React-state/network seam, which is the whole reason this
+block exists. If this is skipped, that seam stays on browser QA permanently -
+a defensible trade for a portfolio project, but it should be a choice rather
+than an accident.
 
 ### 4 — DEPLOY to Render + Atlas
 
@@ -217,13 +255,22 @@ gets involved.
 - syncIndexes() is dev-only by design - before deploying, manually audit
   indexes (Compass or a real migration) instead of relying on this running
   automatically
-- Test coverage roadmap (scheduleTime.ts pure-function tests DONE 7/20;
-  the rest still planned, own workstream):
-  - Backend unit tests (Jest) for auth logic - password hashing, JWT
-    verification, role-gated middleware (highest-risk code in the project)
+- Test coverage roadmap (frontend `scheduleTime.ts` pure-function tests DONE
+  7/20; backend validation tests DONE 8/12; the rest still planned, own
+  workstream):
+  - Backend unit tests for auth logic - password hashing, JWT verification,
+    role-gated middleware (highest-risk code in the project). Vitest now
+    exists in `backend/`, so this no longer needs a runner decision - but it
+    DOES need the `bcrypt` import chain solved, since native bindings can't
+    load in Claude's Linux sandbox against Windows-installed `node_modules`.
+    See the 8/12 DECISION in `docs/decisions.md`.
   - Integration tests for API routes (team-members, recurring-shifts,
     auth) via Supertest. NOT work-shifts - those routes are deleted in
-    Phase 2.
+    Phase 2. Prerequisites, none of them done: splitting `app.ts` out of
+    `server.ts` so the app can be imported without starting a server or
+    connecting to Mongo, the bcrypt problem above, and a decision on whether
+    to mock Mongoose or run a real test database. This is what would cover
+    the self-or-admin 403 permanently rather than by devtools fetch.
   - Frontend component tests (Vitest + React Testing Library) - SCOPED 8/8,
     see `### DECISION: add jsdom + React Testing Library` above for the four
     tests and the setup cost. ScheduleGrid's timezone conversion is one of

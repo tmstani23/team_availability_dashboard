@@ -73,8 +73,9 @@ are win32-x64. Same reason `npx vite build` fails. `tsc --noEmit` and
 `npm run lint` are pure JS and work fine.
 
 DON'T conclude from this that the tests can't be run and hand them to Tim
-unverified. The util tests import only vitest + dayjs, so a clean install in a
-scratch directory pulls Linux binaries and runs them:
+unverified. The util tests on BOTH halves import almost nothing, so a clean
+install in a scratch directory pulls Linux binaries and runs them. Frontend
+(vitest + dayjs):
 
 ```bash
 rm -rf /tmp/vt && mkdir -p /tmp/vt/src/utils /tmp/vt/src/types
@@ -86,16 +87,30 @@ npm install vitest dayjs --silent --no-audit --no-fund
 npx vitest run
 ```
 
+Backend is the same shape — `shiftValidation.ts` imports nothing at all and
+`meetingValidation.ts` imports only mongoose, so swap the copy paths for
+`backend/src/utils` and install `vitest mongoose` instead.
+
 Re-copy the changed file and re-run after each edit. This caught two real bugs
 in `wallClockToInstant` on 8/8 that review had missed — including dayjs
 silently rolling `99:99` over into a date four days later while reporting
 `isValid() === true`. Worth the two minutes every time.
 
-LIMIT: utils only. Anything importing React, Vite or a component needs the full
-dependency install, which is slow and not worth it — that's what the jsdom
-DECISION in `nextSteps.md` is about. Never `npm install` into the repo itself
-from the sandbox; it would overwrite Tim's Windows binaries and break his
-machine.
+VERIFY BY MUTATION, not by going green. A suite that passes on its first run has
+told you nothing yet — it might be asserting the wrong thing, or nothing at all.
+Break the source in the SCRATCH COPY (never the repo) in a few targeted ways and
+confirm the failures land where they should. On 8/12 this showed that a branch
+of `validateBreakTimes` was unreachable rather than untested, which no number of
+passing tests would have revealed and which changed what got written down about
+the code.
+
+LIMIT: utils only, on both halves. Anything importing React, Vite or a component
+needs the full dependency install, which is slow and not worth it — that's what
+the jsdom DECISION in `nextSteps.md` is about. On the backend the equivalent
+wall is the Express app itself: importing any route pulls in native `bcrypt`,
+which can't load in the sandbox, so Supertest-style route tests are blocked
+until that's solved. Never `npm install` into the repo itself from the sandbox;
+it would overwrite Tim's Windows binaries and break his machine.
 
 ## Order of work: build → test → THEN docs and commit
 
@@ -167,7 +182,10 @@ of things once, at the end.
 Full-stack TypeScript, two folders in one repo.
 
 - `backend/` — Express 5 + TypeScript, Mongoose 9 / MongoDB. Run `npm run dev`
-  (ts-node-dev, entry `src/server.ts`). No backend test runner yet. One-off
+  (ts-node-dev, entry `src/server.ts`). Tests: Vitest (`npm test` watch,
+  `npm run test:run` once), added 8/12 and covering `src/utils/*` only — the
+  pure validation functions, no routes and no database. No lint script here.
+  One-off
   scripts in `src/scripts/*.ts` run via `npx ts-node`; `migrateStatus.ts` and
   `migrateToRecurringShifts.ts` are the migration templates (they work on the
   raw Mongo collection, not the model, so they can touch fields the schema no
