@@ -1,37 +1,39 @@
 # Next Steps
 
-Last updated: 2026-08-11
+Last updated: 2026-08-17
 
 ## START HERE NEXT SESSION
 
-Schedule identity landed 8/11 and the backend validation tests landed 8/12 (both
-in `docs/decisions.md`). TWO ITEMS LEFT, and only one of them is certain:
+jsdom + React Testing Library landed 8/17 (in `docs/decisions.md`), and it was
+the last item carrying any design in it. ONE ROADMAP ITEM LEFT, plus one small
+fix the test work turned up:
 
-1. JSDOM + REACT TESTING LIBRARY - design settled, not built, and now DEFERRED
-   pending a call on whether it happens at all. See the DECISION block below,
-   including the ALTERNATIVES section on protecting the display/write split
-   without it. Four tests, not coverage. Mostly config wiring once the thinking
-   is read, so a lower model is fine. jsdom and RTL are ONE item, not two:
-   jsdom is the fake DOM that lets components render in Node, RTL is what
-   queries them.
-2. DEPLOY to Render + Atlas. The only remaining item from the original
+1. DEPLOY to Render + Atlas. The only remaining item from the original
    roadmap. Research is in `docs/decisions.md`; possible any time since Phase
    0. Left last because deploy is when a real second person gets involved.
    Note `backend/` has no build script yet - only `dev` and `test` - so
    producing `dist/` is part of this item, not something that already works.
-
-(1) is listed first now, and the 8/11 session is why. It added `TimezoneSection`
-and a `setTimezone` context write with no component coverage at all, and left
-the new route's 403 unverified in both directions - there's no backend runner,
-and nothing in the UI can reach that path. So the untested surface GREW. It
-remains the item that protects work already done: nothing stops a refactor from
-swapping `viewerTimezone` for `displayTimezone` in MeetingPanel, and all 139
-tests would still pass while meetings booked in the wrong zone.
+   The FRONTEND does have one (`tsc -b && vite build`), but `VITE_API_URL` is
+   baked in at BUILD time and there is no `frontend/.env`, only
+   `.env.example` - so a production build with that variable unset silently
+   ships a bundle pointing at localhost:5000. That's the first thing to get
+   right in this item, not the last.
+2. `setStatus` DOESN'T ROLL BACK A REFUSED WRITE. Found 8/17 while writing the
+   component tests, not fixed. It awaits the PATCH inside a `try` and only
+   rolls back if `fetch` THREW - but a 500 or a 403 comes back as a resolved
+   response with `ok: false` and falls straight through. The optimistic value
+   then sits on screen until the next poll (~15s) quietly replaces it: the
+   user watches their click stick and then un-stick with no explanation.
+   `deleteMeeting` already checks `res.ok` and restores its snapshot, so the
+   fix is to copy that shape, and there is now a harness to hang the fifth
+   test off. Small; worth doing while the test file is still fresh.
 
 CARRIED FORWARD, unverified: the self-or-admin check on
 `PATCH /api/team-members/:id/timezone`. Both directions - a member being
-REFUSED someone else's id, and an admin being ALLOWED it. Two devtools fetches
-if someone wants it before the test work lands.
+REFUSED someone else's id, and an admin being ALLOWED it. Two devtools fetches,
+and still the cheapest way to close it - the 8/17 component tests don't touch
+it (they're frontend-only) and the permanent answer is the Supertest work,
+which is blocked on `bcrypt`.
 
 QA STATUS 8/8 (Tim, browser): 12-hour labels throughout; the grid reachable and
 scrollable at narrow widths with the name column pinned; sidebar stacking; the
@@ -61,12 +63,13 @@ spacing, derived "At lunch"/"Offline" statuses, and the admin hours editor's
 timezone panel against a Sydney member from Chicago (+15h, cross-date warning
 firing correctly).
 
-Still NOT done: component or backend test coverage. The three bugs found on 8/2
-(status rollback writing undefined, the hours-editor fetch race, the state
-bleed between members) all lived in the seam between React state and the
-network, which is exactly what the pure-function tests structurally cannot
-reach. No longer "deliberately" - as of 8/8 it has a plan and a scope, see
-`### DECISION: add jsdom + React Testing Library`.
+Test coverage as of 8/17: pure functions on both halves (frontend 8/8 and
+before, backend 8/12) plus four component areas on the frontend (8/17). The
+React-state/network seam that produced all three 8/2 bugs is now reachable -
+the status rollback is pinned directly, and the display/write split is pinned
+from both sides. Still NOT covered: route handlers, every auth guard, and
+anything asserting a write actually landed. See the roadmap at the bottom of
+this file.
 
 ## WHERE THE HISTORY WENT
 
@@ -89,105 +92,13 @@ preview, responsive) are all DONE. Phase briefs are in docs/phases/ and what
 actually landed is in `docs/decisions.md` - the at-a-glance summaries that used
 to sit here were describing finished work.
 
-ONE DECISION block below is DESIGN ONLY - settled, not built. It lives here
-rather than in `docs/decisions.md` because it's an input to work that hasn't
-happened yet; it moves across with the COMPLETED entry it produces. The
-timezone-preview block that used to sit here made exactly that trip on 8/8, and
-the backend-validation block made it on 8/12.
+No DESIGN-ONLY blocks are left here. The jsdom + RTL block made the trip across
+to `docs/decisions.md` on 8/17 with the COMPLETED entry it produced, the same
+way the timezone-preview block did on 8/8 and the backend-validation block on
+8/12. Anything new that needs designing before it's built gets written here
+first and moves the same way.
 
 What remains is below.
-
-### DECISION: add jsdom + React Testing Library (8/8, design only)
-
-STATUS 8/12: still design only, and now explicitly DEFERRED pending a call on
-whether it happens at all. The backend validation tests were split out into
-their own block above and built first - they're cheaper, carry no design risk,
-and needed none of this block's setup. This one is unchanged in scope; what
-changed is that it is no longer the default next thing. See ALTERNATIVES at the
-end for what protects the display/write split if the answer turns out to be no.
-
-The test roadmap at the bottom of this file has listed frontend component tests
-as "planned" since 7/20. This is the argument for actually doing it, and the
-scope when someone does.
-
-THE CASE, and it's already written down: every bug this project has found in QA
-lived in the seam between React state and the network - the status rollback
-writing `undefined`, the hours-editor fetch race, the state bleed between
-members (all 8/2). Pure-function tests structurally cannot reach that seam.
-The suite is 139 green tests that would not have caught a single one of them.
-
-THE SHARPER REASON, new on 8/8: the timezone preview introduced a DISPLAY /
-WRITE split (see the preview DECISION above). `wallClockToInstant` is now
-tested and pins that the same wall clock in two zones yields two different
-instants - but no test can assert that MeetingPanel passes `viewerTimezone`
-rather than `displayTimezone`. That is a CALL-SITE invariant. Someone
-refactoring for consistency swaps one identifier, all 139 tests still pass, and
-every meeting starts booking in the previewed zone. The invariant this session
-was built around is the one thing the current suite cannot hold.
-
-REINFORCED 8/11: the self-owned timezone work added `TimezoneSection` and a
-`setTimezone` context write, neither covered by anything. `timezones.test.ts`
-pins the LIST as data but cannot touch the select that renders it - which is
-test #3's territory - and the optimistic-rollback gap in #4 now has a sibling,
-since `setTimezone` deliberately isn't optimistic and nothing asserts that.
-
-SCOPE, deliberately four tests rather than coverage:
-  1. MeetingPanel books in the viewer's zone while a preview is active
-     (previewTimezone Tokyo + viewerTimezone Chicago, submit 2PM, assert
-     createMeeting got 19:00:00.000Z). The one that matters.
-  2. ScheduleGrid DOES follow the preview - the other half, so the split is
-     pinned from both sides.
-  3. TimeSelect round-trip: hour + minute emit "08:30"; granularity="hour"
-     can never emit a non-:00 minute.
-  4. Status optimistic rollback: a failed PATCH restores the previous status.
-     The exact 8/2 bug.
-
-COST: jsdom, @testing-library/react, @testing-library/user-event,
-@testing-library/jest-dom, plus `environment: 'jsdom'` and a setup file in the
-Vite config. The real work isn't the tests - it's a `renderWithProviders`
-helper, since all four components read useTeam()/useAuth() and need a fake
-context injected. One small reusable file.
-
-WHAT IT DOESN'T BUY, so nobody expects it to: jsdom has no rendering engine, so
-layout, the sticky column and the base-select popup stay manual. The DevTools
-Sensors timezone QA also stays manual and MUST - `renderWithProviders` injects
-a fake context, so it deliberately bypasses BROWSER_TIMEZONE and the whole
-fallback chain, which is exactly the path Sensors exercises.
-
-NOTE for whoever writes them: query by role and accessible name, never by
-markup structure - component tests are the ones that rot. ThemedSelect and
-TimeSelect were given aria-labels on 8/8 partly for this.
-
-ALSO NOTE: `BROWSER_TIMEZONE` is read once at module load in TeamContext, so
-unit-testing the fallback chain directly needs the TZ env var set before the
-process starts, not per-test. Fine for the four above; a trap for anyone going
-further without refactoring that constant first.
-
-ALTERNATIVES if this never gets built (raised 8/12). Tests #3 and #4 have no
-substitute and would simply stay uncovered - they're nice, not load-bearing.
-Tests #1 and #2 are the display/write split, and that one has two cheaper
-protections worth knowing about:
-
-  - BRANDED TYPES, and this is arguably STRONGER than the test it replaces.
-    Give the two zones distinct nominal types (`string & { __brand: 'viewer' }`
-    vs `'display'`) and have `wallClockToInstant` accept only the viewer one.
-    The swap then stops compiling. A test catches it at the two call sites
-    someone thought to test; the type catches it everywhere, including call
-    sites that don't exist yet - which turns the CALL-SITE invariant CLAUDE.md
-    describes as untestable into one the compiler holds. COST: a cast helper
-    at every boundary where a zone string enters (the browser API, context, the
-    API response), so it buys safety in the middle by adding friction at the
-    edges. Roughly an hour, touching the most load-bearing code in the
-    codebase, so it deserves its own pass rather than a drive-by.
-  - AN ESLINT RULE - `no-restricted-syntax` banning the `displayTimezone`
-    identifier inside MeetingPanel and the meetings fetch window. Crude, tests
-    no behaviour, and brittle if those files are renamed, but it's about twenty
-    lines and closes precisely the hole.
-
-Neither reaches the React-state/network seam, which is the whole reason this
-block exists. If this is skipped, that seam stays on browser QA permanently -
-a defensible trade for a portfolio project, but it should be a choice rather
-than an accident.
 
 ### 4 — DEPLOY to Render + Atlas
 
@@ -256,8 +167,8 @@ gets involved.
   indexes (Compass or a real migration) instead of relying on this running
   automatically
 - Test coverage roadmap (frontend `scheduleTime.ts` pure-function tests DONE
-  7/20; backend validation tests DONE 8/12; the rest still planned, own
-  workstream):
+  7/20; backend validation tests DONE 8/12; frontend component tests DONE
+  8/17; the rest still planned, own workstream):
   - Backend unit tests for auth logic - password hashing, JWT verification,
     role-gated middleware (highest-risk code in the project). Vitest now
     exists in `backend/`, so this no longer needs a runner decision - but it
@@ -271,10 +182,13 @@ gets involved.
     connecting to Mongo, the bcrypt problem above, and a decision on whether
     to mock Mongoose or run a real test database. This is what would cover
     the self-or-admin 403 permanently rather than by devtools fetch.
-  - Frontend component tests (Vitest + React Testing Library) - SCOPED 8/8,
-    see `### DECISION: add jsdom + React Testing Library` above for the four
-    tests and the setup cost. ScheduleGrid's timezone conversion is one of
-    them; the display/write split is the one that matters most.
+  - Frontend component tests (Vitest + React Testing Library) - DONE 8/17,
+    scoped 8/8. Four areas, 11 tests, not coverage; see the COMPLETED entry
+    and the DECISION block in `docs/decisions.md`. The display/write split is
+    now pinned from both sides, which was the point. `renderWithProviders` in
+    `src/test/` is the helper to reuse for a fifth - note it injects a FAKE
+    context, so anything testing TeamProvider's own logic has to mount the
+    real provider and stub `fetch` the way the status-rollback test does.
   - Not planned at this scope: E2E (Playwright/Cypress) - reasonable next
     step only if this grows past a portfolio project
 - Audit .env / secrets handling for production config (JWT_SECRET

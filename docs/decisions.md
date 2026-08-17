@@ -24,6 +24,202 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — jsdom + React Testing Library (8/17)
+
+Builds the DECISION block below. That block had been DEFERRED since 8/12 pending
+a call on whether it happened at all; the call came back yes, and the scope it
+described was built unchanged - four areas, not coverage.
+
+**What landed.** jsdom (a fake DOM implemented in JavaScript, so components can
+render inside Node with no browser involved) plus `@testing-library/react`,
+`@testing-library/user-event` and `@testing-library/jest-dom`, all devDeps.
+`vite.config.ts` gains a `test` block - `environment: 'jsdom'` and a setup file -
+and now imports `defineConfig` from `vitest/config` rather than `vite`, which is
+the same function with the `test` key in its type. Two new files under
+`src/test/`; four test files co-located with their components. 11 tests, suite
+now 150. No production code changed.
+
+**jsdom applies to the whole run, not just the component files.** The pure util
+suites don't need a DOM, but Vitest 4 removed `environmentMatchGlobs`, so the
+choice was one environment everywhere or splitting the run into two projects -
+and a second project to spare 139 tests an unused `document` isn't worth the
+config. They pass unchanged under it.
+
+**`cleanup()` is called by hand in `setup.ts`, and that is not optional.**
+Testing Library installs its own `afterEach(cleanup)` only when a global
+`afterEach` exists - meaning only under `globals: true`, which this project
+deliberately doesn't use. Without the explicit call the auto-cleanup silently
+never installs, every render stays in the document, and the next test's queries
+match two of everything. It surfaces as "found multiple elements", which reads
+like a bad query rather than a missing teardown.
+
+**`renderWithProviders` injects a FAKE context rather than mounting the real
+providers.** That's what makes "the viewer is in Chicago previewing Tokyo" a
+one-line argument instead of a browser timezone plus a network fetch. The cost
+is that TeamProvider's own logic is invisible from it - so test 4 mounts the
+REAL provider and stubs `fetch`, because a fake `setStatus` has no rollback in
+it to test. That split is the main thing to know before writing a fifth test.
+
+**Two ways a component test can pass today and fail on Tuesday, both closed.**
+`makeWeek` builds seven identical weekday records rather than one, because
+`getCurrentShiftForMember` picks by the member's own weekday - a single Monday
+shift is green today and an empty grid on Saturday. And ScheduleGrid's test pins
+the system clock with `vi.useFakeTimers({ toFake: ['Date'] })`, because the grid
+calls `resolveHourRangeInViewerTz` without passing `now` and the Chicago/Tokyo
+gap is +14 in summer but +15 in winter. Faking only `Date` leaves `setTimeout`
+real, so Testing Library's own waiting is unaffected.
+
+**What they cover.** (1) MeetingPanel booking on the viewer's clock with a Tokyo
+preview active - 2:00 PM Chicago submits as `19:00:00.000Z`, not the
+`05:00:00.000Z` the previewed zone would give - plus its date list resolving
+"Today" on the viewer's clock, and the panel captioning which clock it is on.
+(2) ScheduleGrid following the preview: the same 9-5 Chicago shift labelled
+9AM/5PM on the viewer's own clock and 11PM/7AM in the previewed one, and the
+"your local time" caption standing down during a preview. (3) TimeSelect joining
+its two halves into "HH:mm", and `granularity="hour"` omitting the minute field
+entirely and normalising a legacy `08:30` to `09:00` on the next change rather
+than carrying the :30 into a value the save would reject. (4) The status
+optimistic rollback: the pill moves before the PATCH resolves, and a failed
+write puts the STORED value back - specifically `dnd`, not `undefined`, which is
+the shape the 8/2 bug took.
+
+**ScheduleGrid's test asserts on label COUNTS, and that's deliberate.** The grid
+prints all 24 hour labels in its header and repeats the ones a shift starts and
+ends on inside the member's row, so a label the row is using appears twice on
+the page and one it isn't appears once. Counting reads the converted value
+without touching a class name or a DOM position - which is what keeps the test
+from rotting the next time the grid's markup moves.
+
+**Verified by mutation.** 150 passing on the first run means nothing, so the
+source was broken seven ways in a throwaway copy: MeetingPanel converting with
+the previewed zone (1 failure), its date list following the preview (2),
+ScheduleGrid reading `viewerTimezone` instead of `displayTimezone` (2),
+TimeSelect dropping the hour-only minute normalisation (1), TimeSelect rendering
+a minute field anyway (1), the rollback removed entirely (1), and the rollback
+writing `undefined` (1). Every one landed where it should. The first and third
+are the display/write split failing in each direction - the pair this whole
+block exists to catch, and the pair all 139 previous tests survived.
+
+**Ran in a clean Linux scratch install, which CLAUDE.md said wasn't worth it.**
+That guidance predates the current environment and has been corrected there: a
+throwaway directory with React, RTL, jsdom and react-router installed runs the
+component tests fine. Slower than the utils-only trick (~10s against ~2s) and
+well inside the budget for not handing over unverified tests.
+
+**Not covered, deliberately.** jsdom has no rendering engine, so layout, the
+sticky name column and the base-select popup stay manual. The DevTools Sensors
+timezone QA also stays manual and MUST - `renderWithProviders` injects a fake
+context, so it bypasses `BROWSER_TIMEZONE` and the whole fallback chain, which
+is precisely the path Sensors exercises.
+
+**FOUND WHILE WRITING TEST 4, not fixed:** `setStatus`'s rollback only fires
+when `fetch` THROWS. It never checks `res.ok`, so a 500 or a 403 leaves the
+optimistic value on screen until the next poll quietly replaces it - the user
+watches their click stick and then un-stick 15 seconds later with no
+explanation. `deleteMeeting` already handles this correctly and is the pattern
+to copy. Left alone rather than fixed mid-session; it's in `nextSteps.md` as its
+own item.
+
+VERIFIED 8/17 (Tim, `npm run test:run` in `frontend/`): 150 passing, lint clean.
+`tsc -b` clean across both project references, checked in the scratch install
+rather than on Tim's machine. No browser QA - no runtime code changed.
+
+### DECISION: add jsdom + React Testing Library (8/8, deferred 8/12, built 8/17)
+
+STATUS 8/12: still design only, and now explicitly DEFERRED pending a call on
+whether it happens at all. The backend validation tests were split out into
+their own block above and built first - they're cheaper, carry no design risk,
+and needed none of this block's setup. This one is unchanged in scope; what
+changed is that it is no longer the default next thing. See ALTERNATIVES at the
+end for what protects the display/write split if the answer turns out to be no.
+
+The test roadmap at the bottom of this file has listed frontend component tests
+as "planned" since 7/20. This is the argument for actually doing it, and the
+scope when someone does.
+
+THE CASE, and it's already written down: every bug this project has found in QA
+lived in the seam between React state and the network - the status rollback
+writing `undefined`, the hours-editor fetch race, the state bleed between
+members (all 8/2). Pure-function tests structurally cannot reach that seam.
+The suite is 139 green tests that would not have caught a single one of them.
+
+THE SHARPER REASON, new on 8/8: the timezone preview introduced a DISPLAY /
+WRITE split (see the preview DECISION above). `wallClockToInstant` is now
+tested and pins that the same wall clock in two zones yields two different
+instants - but no test can assert that MeetingPanel passes `viewerTimezone`
+rather than `displayTimezone`. That is a CALL-SITE invariant. Someone
+refactoring for consistency swaps one identifier, all 139 tests still pass, and
+every meeting starts booking in the previewed zone. The invariant this session
+was built around is the one thing the current suite cannot hold.
+
+REINFORCED 8/11: the self-owned timezone work added `TimezoneSection` and a
+`setTimezone` context write, neither covered by anything. `timezones.test.ts`
+pins the LIST as data but cannot touch the select that renders it - which is
+test #3's territory - and the optimistic-rollback gap in #4 now has a sibling,
+since `setTimezone` deliberately isn't optimistic and nothing asserts that.
+
+SCOPE, deliberately four tests rather than coverage:
+  1. MeetingPanel books in the viewer's zone while a preview is active
+     (previewTimezone Tokyo + viewerTimezone Chicago, submit 2PM, assert
+     createMeeting got 19:00:00.000Z). The one that matters.
+  2. ScheduleGrid DOES follow the preview - the other half, so the split is
+     pinned from both sides.
+  3. TimeSelect round-trip: hour + minute emit "08:30"; granularity="hour"
+     can never emit a non-:00 minute.
+  4. Status optimistic rollback: a failed PATCH restores the previous status.
+     The exact 8/2 bug.
+
+COST: jsdom, @testing-library/react, @testing-library/user-event,
+@testing-library/jest-dom, plus `environment: 'jsdom'` and a setup file in the
+Vite config. The real work isn't the tests - it's a `renderWithProviders`
+helper, since all four components read useTeam()/useAuth() and need a fake
+context injected. One small reusable file.
+
+WHAT IT DOESN'T BUY, so nobody expects it to: jsdom has no rendering engine, so
+layout, the sticky column and the base-select popup stay manual. The DevTools
+Sensors timezone QA also stays manual and MUST - `renderWithProviders` injects
+a fake context, so it deliberately bypasses BROWSER_TIMEZONE and the whole
+fallback chain, which is exactly the path Sensors exercises.
+
+NOTE for whoever writes them: query by role and accessible name, never by
+markup structure - component tests are the ones that rot. ThemedSelect and
+TimeSelect were given aria-labels on 8/8 partly for this.
+
+ALSO NOTE: `BROWSER_TIMEZONE` is read once at module load in TeamContext, so
+unit-testing the fallback chain directly needs the TZ env var set before the
+process starts, not per-test. Fine for the four above; a trap for anyone going
+further without refactoring that constant first.
+
+ALTERNATIVES if this never gets built (raised 8/12). Tests #3 and #4 have no
+substitute and would simply stay uncovered - they're nice, not load-bearing.
+Tests #1 and #2 are the display/write split, and that one has two cheaper
+protections worth knowing about:
+
+  - BRANDED TYPES, and this is arguably STRONGER than the test it replaces.
+    Give the two zones distinct nominal types (`string & { __brand: 'viewer' }`
+    vs `'display'`) and have `wallClockToInstant` accept only the viewer one.
+    The swap then stops compiling. A test catches it at the two call sites
+    someone thought to test; the type catches it everywhere, including call
+    sites that don't exist yet - which turns the CALL-SITE invariant CLAUDE.md
+    describes as untestable into one the compiler holds. COST: a cast helper
+    at every boundary where a zone string enters (the browser API, context, the
+    API response), so it buys safety in the middle by adding friction at the
+    edges. Roughly an hour, touching the most load-bearing code in the
+    codebase, so it deserves its own pass rather than a drive-by.
+  - AN ESLINT RULE - `no-restricted-syntax` banning the `displayTimezone`
+    identifier inside MeetingPanel and the meetings fetch window. Crude, tests
+    no behaviour, and brittle if those files are renamed, but it's about twenty
+    lines and closes precisely the hole.
+
+Neither reaches the React-state/network seam, which is the whole reason this
+block exists. If this is skipped, that seam stays on browser QA permanently -
+a defensible trade for a portfolio project, but it should be a choice rather
+than an accident.
+
+RESOLVED 8/17: built. The ALTERNATIVES were not taken and stay available -
+branded types in particular would still add something the four tests don't,
+since they hold every call site rather than the two that got tested.
+
 ## COMPLETED — Backend validation tests (8/12)
 
 Builds the DECISION block below, unchanged from its design. First tests the

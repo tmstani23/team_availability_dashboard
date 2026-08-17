@@ -104,9 +104,19 @@ of `validateBreakTimes` was unreachable rather than untested, which no number of
 passing tests would have revealed and which changed what got written down about
 the code.
 
-LIMIT: utils only, on both halves. Anything importing React, Vite or a component
-needs the full dependency install, which is slow and not worth it — that's what
-the jsdom DECISION in `nextSteps.md` is about. On the backend the equivalent
+COMPONENT TESTS RUN THE SAME WAY — corrected 8/17. This used to say that
+anything importing React or a component needed a full dependency install that
+was "slow and not worth it". It is neither. A throwaway directory with react,
+react-dom, react-router-dom, dayjs, vitest, jsdom, @vitejs/plugin-react and the
+three @testing-library packages runs the whole component suite in about ten
+seconds, against the utils trick's two. Copy `src/components`, `src/context`,
+`src/hooks`, `src/types`, `src/utils`, `src/test` and `config.ts` across, plus
+`vite.config.ts` and the three tsconfigs, and both `vitest run` and `tsc -b`
+work — the latter matters because neither Vitest nor ESLint type-checks
+anything, so a type error in a test file passes both and only surfaces at build.
+Do this rather than handing over unverified component tests.
+
+On the backend the equivalent
 wall is the Express app itself: importing any route pulls in native `bcrypt`,
 which can't load in the sandbox, so Supertest-style route tests are blocked
 until that's solved. Never `npm install` into the repo itself from the sandbox;
@@ -191,10 +201,15 @@ Full-stack TypeScript, two folders in one repo.
   raw Mongo collection, not the model, so they can touch fields the schema no
   longer declares). `syncIndexes()` runs on boot in non-production only.
 - `frontend/` — React 19 + Vite 8 + TypeScript, Tailwind v4, react-router-dom
-  v7, dayjs (utc + timezone plugins). Run `npm run dev`. Tests: Vitest
-  (`npm test` watch, `npm run test:run` once). Lint: `npm run lint`.
-  Claude can run the util tests despite the Windows/Linux binary mismatch —
-  see "Running the tests yourself" above.
+  v7, dayjs (utc + timezone plugins). Run `npm run dev`. Tests: Vitest on
+  jsdom (`npm test` watch, `npm run test:run` once) — the pure-function suites
+  in `src/utils/*.test.ts` plus component tests co-located with their
+  components, sharing `src/test/renderWithProviders.tsx`. That helper injects a
+  FAKE context, so anything testing TeamProvider's OWN logic (optimistic
+  writes, the timezone fallback chain) has to mount the real provider and stub
+  `fetch` instead — `TeamStatusSidebar.test.tsx` is the example to copy.
+  Lint: `npm run lint`. Claude can run all of it despite the Windows/Linux
+  binary mismatch — see "Running the tests yourself" above.
 
 ### Backend
 
@@ -267,9 +282,13 @@ wall-clock -> instant conversion and the meetings FETCH WINDOW read
 Without the split, someone previews Tokyo, books "2pm", and it lands 2pm
 Chicago.
 
-This is a CALL-SITE invariant — no current test can catch swapping one
-identifier for the other, and all 130 would still pass. Treat any edit touching
-those identifiers as high-risk. `BROWSER_TIMEZONE` is read once at module load.
+This is a CALL-SITE invariant. As of 8/17 two component tests hold it —
+MeetingPanel booking on `viewerTimezone` with a preview active, and ScheduleGrid
+following `displayTimezone` — both confirmed by deliberately swapping the
+identifiers and watching them fail. They cover THOSE TWO CALL SITES ONLY, so a
+new consumer of either identifier is unprotected until it brings its own test.
+Treat any edit touching them as high-risk. `BROWSER_TIMEZONE` is read once at
+module load.
 - ALL shift/timezone logic funnels through `frontend/src/utils/scheduleTime.ts`
   (pure dayjs functions). `getCurrentShiftForMember` resolves a member's
   standing shift for today by the MEMBER's own local weekday, returning a
@@ -300,7 +319,8 @@ See `nextSteps.md` for what's next, and `docs/decisions.md` for why anything is
 the way it is — every `## COMPLETED` entry and `### DECISION:` block lives
 there, newest first. Read it before changing anything non-obvious.
 
-The recurring-shift rework, meetings, and the 8/8 roadmap (12-hour clock,
-timezone preview, responsive) have all landed. What's left: deploy to
-Render + Atlas, self-owned schedule identity (design only), and jsdom + React
-Testing Library (design only).
+The recurring-shift rework, meetings, the 8/8 roadmap (12-hour clock, timezone
+preview, responsive), self-owned schedule identity, and the test work on both
+halves have all landed. What's left: deploy to Render + Atlas, plus one known
+bug — `setStatus` doesn't roll back a write the server REFUSES, only one that
+fails outright.
