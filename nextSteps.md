@@ -1,12 +1,12 @@
 # Next Steps
 
-Last updated: 2026-08-17
+Last updated: 2026-08-23
 
 ## START HERE NEXT SESSION
 
-jsdom + React Testing Library landed 8/17 (in `docs/decisions.md`), and it was
-the last item carrying any design in it. ONE ROADMAP ITEM LEFT, plus one small
-fix the test work turned up:
+The `setStatus` refused-write fix landed 8/23 (in `docs/decisions.md`), and
+took the carried-forward permission check with it. ONE ROADMAP ITEM LEFT, and
+nothing else outstanding:
 
 1. DEPLOY to Render + Atlas. The only remaining item from the original
    roadmap. Research is in `docs/decisions.md`; possible any time since Phase
@@ -18,22 +18,21 @@ fix the test work turned up:
    `.env.example` - so a production build with that variable unset silently
    ships a bundle pointing at localhost:5000. That's the first thing to get
    right in this item, not the last.
-2. `setStatus` DOESN'T ROLL BACK A REFUSED WRITE. Found 8/17 while writing the
-   component tests, not fixed. It awaits the PATCH inside a `try` and only
-   rolls back if `fetch` THREW - but a 500 or a 403 comes back as a resolved
-   response with `ok: false` and falls straight through. The optimistic value
-   then sits on screen until the next poll (~15s) quietly replaces it: the
-   user watches their click stick and then un-stick with no explanation.
-   `deleteMeeting` already checks `res.ok` and restores its snapshot, so the
-   fix is to copy that shape, and there is now a harness to hang the fifth
-   test off. Small; worth doing while the test file is still fresh.
 
-CARRIED FORWARD, unverified: the self-or-admin check on
-`PATCH /api/team-members/:id/timezone`. Both directions - a member being
-REFUSED someone else's id, and an admin being ALLOWED it. Two devtools fetches,
-and still the cheapest way to close it - the 8/17 component tests don't touch
-it (they're frontend-only) and the permanent answer is the Supertest work,
-which is blocked on `bcrypt`.
+This is a good fresh-session boundary. Deploy is its own workstream - real
+accounts, real secrets, a build script that doesn't exist yet - and none of it
+shares context with what came before.
+
+CLOSED 8/23, carried forward since 8/17: the self-or-admin check on
+`PATCH /api/team-members/:id/timezone`, both directions, plus the same two on
+the status route. Verified by devtools fetch; see the QA paragraph in the 8/23
+entry. Worth knowing it's a SNAPSHOT, not a regression test - it goes stale the
+moment those routes change, and the permanent answer is still the Supertest
+work blocked on `bcrypt`.
+
+QA STATUS 8/23 (Tim, browser + devtools): the self-or-admin gate on both the
+status and timezone routes, all four directions - see the 8/23 COMPLETED entry.
+Tests green (151), lint clean.
 
 QA STATUS 8/8 (Tim, browser): 12-hour labels throughout; the grid reachable and
 scrollable at narrow widths with the name column pinned; sidebar stacking; the
@@ -63,11 +62,12 @@ spacing, derived "At lunch"/"Offline" statuses, and the admin hours editor's
 timezone panel against a Sydney member from Chicago (+15h, cross-date warning
 firing correctly).
 
-Test coverage as of 8/17: pure functions on both halves (frontend 8/8 and
-before, backend 8/12) plus four component areas on the frontend (8/17). The
-React-state/network seam that produced all three 8/2 bugs is now reachable -
-the status rollback is pinned directly, and the display/write split is pinned
-from both sides. Still NOT covered: route handlers, every auth guard, and
+Test coverage as of 8/23: pure functions on both halves (frontend 8/8 and
+before, backend 8/12) plus four component areas on the frontend (8/17, one
+test added 8/23 - 151 total). The React-state/network seam that produced all
+three 8/2 bugs is now reachable - the status rollback is pinned from BOTH
+failure directions, a thrown fetch and a refused response, and the
+display/write split is pinned from both sides. Still NOT covered: route handlers, every auth guard, and
 anything asserting a write actually landed. See the roadmap at the bottom of
 this file.
 
@@ -183,7 +183,7 @@ gets involved.
     to mock Mongoose or run a real test database. This is what would cover
     the self-or-admin 403 permanently rather than by devtools fetch.
   - Frontend component tests (Vitest + React Testing Library) - DONE 8/17,
-    scoped 8/8. Four areas, 11 tests, not coverage; see the COMPLETED entry
+    scoped 8/8. Four areas, 12 tests, not coverage; see the COMPLETED entry
     and the DECISION block in `docs/decisions.md`. The display/write split is
     now pinned from both sides, which was the point. `renderWithProviders` in
     `src/test/` is the helper to reuse for a fifth - note it injects a FAKE

@@ -24,6 +24,65 @@ being able to tell apart from a decision that was simply wrong.
 
 ---
 
+## COMPLETED — setStatus rolls back a REFUSED write (8/23)
+
+The second item on 8/17's start-here list, found while writing the component
+tests and deliberately left unfixed until the test file could hold it.
+
+**The bug.** `setStatus` does an optimistic update, then awaits the PATCH inside
+a `try`, and rolled back only from the `catch`. But `fetch` rejects only when
+the REQUEST fails - no network, DNS, connection refused. A server that answers
+and says no (403 from the self-or-admin gate, or a 500) comes back as a
+perfectly resolved Response carrying `ok: false`, so it fell straight past the
+catch and the optimistic value stayed on screen. The next poll replaced it
+~15 seconds later with no explanation: the click appeared to stick, then
+silently un-stuck. `deleteMeeting` already had the `res.ok` check, for exactly
+this reason and written up at its own call site, so the fix was to copy that
+shape rather than invent one.
+
+**What landed.** The rollback body is now a local `rollback()` closure, since
+two paths need it, and an `if (!res.ok)` check after the await calls it. Six
+lines. `deleteMember` was left alone: it has the same shape but no refusable
+path - delete is admin-only and the gate is on the route, so a member never
+reaches it to be refused.
+
+**The signature stays `Promise<void>`.** The tempting move is to return
+`{ success, message }` like `deleteMeeting`, `createMeeting` and `setTimezone`
+all do. Not done, because nothing would read it - both call sites are picker
+buttons that render no error surface, so it would mean widening the type,
+touching both call sites and the fake context in `renderWithProviders`, to
+deliver a message to two `onClick`s that drop it. When a status write gets a
+place to SHOW a refusal, that's the moment to change the signature, and the
+four-function precedent will still be there.
+
+**Test 5, and why the harness needed a second handle.** The existing rollback
+test holds the PATCH open with a promise the test rejects at a chosen moment -
+that's what makes the optimistic value observable rather than a flicker inside
+the click. The new test needs the same suspension but must SETTLE it with a
+Response instead of an error, so the deferred now exposes `answerTheWrite`
+alongside `failTheWrite`, plus a `refusedResponse(status)` helper whose whole
+point is that it resolves. Reusing the reject path would have re-tested the
+half that already worked. Suite is 151.
+
+**Verified by mutation.** Replacing `if (!res.ok)` with `if (false)` in a
+scratch copy fails the new test on the line asserting the old status came back,
+while the original throw-path test still passes - so the new test pins the new
+behaviour specifically and isn't riding along on the old one.
+
+**QA (Tim, browser, 8/23).** Both directions on BOTH self-or-admin routes,
+which also closes the check carried forward since 8/17. Devtools fetch against
+another member's id: status route 403 as a member and 200 as an admin;
+timezone route 403 as a member (2ms - the gate returns before any DB work) and
+200 as an admin, with the target member's card visibly moving to the new zone,
+which confirms the write landed and the grid re-resolved from it. Note this
+exercises the SERVER half only - a console fetch bypasses `setStatus`, so
+there's no optimistic update to roll back. The client half is the test above.
+`npm run test:run` green (151), lint clean.
+
+**Still not covered.** Everything the Supertest work would cover: these four
+fetches are a snapshot, not a regression test, and they'll go stale the moment
+the routes change. That remains blocked on `bcrypt`.
+
 ## COMPLETED — jsdom + React Testing Library (8/17)
 
 Builds the DECISION block below. That block had been DEFERRED since 8/12 pending

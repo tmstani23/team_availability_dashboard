@@ -321,6 +321,5 @@ there, newest first. Read it before changing anything non-obvious.
 
 The recurring-shift rework, meetings, the 8/8 roadmap (12-hour clock, timezone
 preview, responsive), self-owned schedule identity, and the test work on both
-halves have all landed. What's left: deploy to Render + Atlas, plus one known
-bug — `setStatus` doesn't roll back a write the server REFUSES, only one that
-fails outright.
+halves have all landed, and the `setStatus` refused-write rollback was fixed
+8/23. What's left: deploy to Render + Atlas. Nothing else outstanding.

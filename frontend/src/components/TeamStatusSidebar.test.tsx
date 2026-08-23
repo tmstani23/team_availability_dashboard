@@ -24,6 +24,12 @@ import TeamStatusSidebar from './TeamStatusSidebar';
 const jsonResponse = (body: unknown) =>
   ({ ok: true, json: async () => body }) as unknown as Response;
 
+// A refusal. Note it RESOLVES - that's the whole point of the second test:
+// fetch only throws when the request itself fails, so a server saying "no"
+// arrives looking exactly like a success unless res.ok is checked.
+const refusedResponse = (status: number) =>
+  ({ ok: false, status, json: async () => ({ message: 'Not allowed' }) }) as unknown as Response;
+
 describe('status writes through the real TeamProvider', () => {
   const member: TeamMember = {
     _id: 'self',
@@ -52,13 +58,18 @@ describe('status writes through the real TeamProvider', () => {
   // moment at which the optimistic value is observable - and "it ends up
   // right" is only half of what optimistic means.
   let failTheWrite: (reason: Error) => void;
+  // The other half of the same idea: settle the PATCH with a RESPONSE instead
+  // of an error, so a REFUSAL (403/500 - resolved, ok:false) can be told apart
+  // from a request that never landed at all.
+  let answerTheWrite: (res: Response) => void;
 
   beforeEach(() => {
     // setStatus logs the failure it's recovering from. Expected noise, so it's
     // silenced rather than left to look like a broken test.
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const patchInFlight = new Promise<Response>((_, reject) => {
+    const patchInFlight = new Promise<Response>((resolve, reject) => {
+      answerTheWrite = resolve;
       failTheWrite = reject;
     });
 
@@ -118,6 +129,28 @@ describe('status writes through the real TeamProvider', () => {
 
     // Rolled back to what was actually stored - and specifically to 'dnd',
     // not to undefined, which is the shape the original bug took.
+    expect(screen.getByText('Do Not Disturb')).toBeInTheDocument();
+    expect(screen.getAllByText('Active')).toHaveLength(1);
+  });
+
+  // The 8/17 bug, pinned. Same optimistic path, different failure: the server
+  // ANSWERS and says no. Before the fix only a thrown fetch rolled back, so
+  // the refused value stayed on screen until a poll ~15 seconds later replaced
+  // it - the user's click appeared to stick, then silently un-stuck.
+  it('puts the old status back when the server refuses the write', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    expect(await screen.findByText('Do Not Disturb')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Active' }));
+
+    expect(screen.getAllByText('Active')).toHaveLength(2);
+
+    await act(async () => {
+      answerTheWrite(refusedResponse(403));
+    });
+
     expect(screen.getByText('Do Not Disturb')).toBeInTheDocument();
     expect(screen.getAllByText('Active')).toHaveLength(1);
   });

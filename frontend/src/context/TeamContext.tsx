@@ -227,22 +227,34 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
       )
     );
 
-    try {
-      await fetch(`${API_BASE}/api/team-members/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status: newStatus })
-      });
-    } catch (err) {
-      console.error('Failed to set status:', err);
-      // Rollback: request failed, so revert to whatever the status was
-      // before this function ran.
+    // Rollback: put back whatever the status was before this function ran.
+    // Shared by both failure paths below.
+    const rollback = () =>
       setMembers(prev =>
         prev.map(member =>
           member._id === id ? { ...member, status: previousStatus } : member
         )
       );
+
+    try {
+      const res = await fetch(`${API_BASE}/api/team-members/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      // A REFUSED write (403, 500) is not a thrown fetch - it's a resolved
+      // response with ok:false, so it used to fall straight through here and
+      // leave the optimistic value on screen until the next poll (~15s)
+      // quietly swapped it back. Same check deleteMeeting already does.
+      if (!res.ok) {
+        console.error('Status write refused:', res.status);
+        rollback();
+      }
+    } catch (err) {
+      console.error('Failed to set status:', err);
+      rollback();
     } finally {
       // Write is settled (success or failure) - polls are free to reflect
       // the real server state for this member again.
