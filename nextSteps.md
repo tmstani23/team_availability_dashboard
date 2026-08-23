@@ -124,6 +124,47 @@ second person gets involved. The essentials:
 - Test ladder before Render, not after: two browser profiles -> LAN via
   `vite --host` from a phone (real network drops) -> cloudflared tunnel for
   a second real person -> deploy.
+- BLOCKER, found 8/23: a fresh database has no way to make its first admin.
+  See the DECISION block below - build `seedAdmin.ts` before touching Render.
+
+### DECISION: first admin comes from a seedAdmin script, not boot-time bootstrap
+
+THE PROBLEM. A fresh Atlas database has zero `UserBadge` documents, and every
+door into creating one is admin-gated: `/auth/register` is gone (replaced by
+`POST /api/team-members`, which is `requireAdmin`), and `PATCH /:id/role` is
+admin-only too. So nobody can log in, so nobody can create anyone. The local
+admin predates this - it came from the old register flow, and that door is
+shut. `resetAdminPassword.ts` only resets an EXISTING badge; its own error
+message says to "use seedAdmin.ts instead", and that file has never existed
+(no git history for the path). Deployed, this stops the app cold.
+
+THE CHOICE. Considered a boot-time bootstrap - if `UserBadge.countDocuments()`
+is 0, create the admin from env - and rejected it. Its one real advantage is
+needing no shell on the host, and that advantage doesn't apply: the script can
+run from Tim's laptop with `MONGODB_URI` pointed at Atlas (allowlist the IP).
+What's left is cost. `SEED_ADMIN_PASSWORD` would have to live in Render's env
+permanently, since the code reads it on every start, where a script lets you
+set the two vars, run once, and delete them. And "zero badges" is true on
+first boot AND whenever something is already wrong - wrong cluster in
+`MONGODB_URI`, a dropped collection, a staging DB sharing config - so the
+failure mode isn't "bootstrap didn't run", it's "bootstrap ran when it
+shouldn't have", silently, with a months-old env password. Startup code with
+privilege is a new category for this codebase; a one-off script in `scripts/`
+is not - `migrateStatus.ts` and `migrateToRecurringShifts.ts` are already
+exactly that, and `resetAdminPassword.ts` already uses these same two vars.
+
+WHAT TO BUILD. `backend/src/scripts/seedAdmin.ts`, sibling to
+`resetAdminPassword.ts` and following its shape: read `SEED_ADMIN_EMAIL` and
+`SEED_ADMIN_PASSWORD` (both already in `.env.example`), bail if either is
+missing, connect, and create the linked `TeamMember` + `UserBadge` pair with
+`role: 'admin'` and a bcrypt hash at the same `SALT_ROUNDS = 10`. Refuse if a
+badge with that email already exists rather than overwriting - resetting a
+password is the other script's job, and the two shouldn't be able to be
+confused for one another. Delete the env vars from Render once it has run.
+
+WHEN THIS WOULD HAVE BEEN WRONG: a host with genuinely no route to the
+database, or a self-hosted product where "run this script" is a support
+burden. Neither is this project.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
