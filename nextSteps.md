@@ -102,9 +102,28 @@ What remains is below.
 
 ### 4 — DEPLOY to Render + Atlas
 
-See the deployment research in `docs/decisions.md`. Could happen any time
-after Phase 0; deliberately last, since deploy is when a real second person
-gets involved.
+Full research in `docs/decisions.md` ("Deployment research (7/25)"). Could
+happen any time after Phase 0; deliberately last, since deploy is when a real
+second person gets involved. The essentials:
+
+- Render = PaaS running Express (git-push deploy, free tier, HTTPS
+  terminated for you, spins down after 15 min idle / ~1 min cold start).
+  Atlas = managed Mongo, free tier 512MB and permanent. Swap `MONGODB_URI`.
+- ONE service, not two. Express serves the built frontend (`express.static`
+  on `dist/` + a catch-all so client routes return `index.html`). This is
+  load-bearing, not convenience: same origin is what keeps the auth cookie's
+  `sameSite: 'lax'` working. Splitting the domains forces `'none'` +
+  `secure`, which is the third-party-cookie pattern browsers keep clamping
+  down on and breaks differently in Safari.
+- Not yet built: a backend `build` script and production `start` (only `dev`
+  via ts-node-dev and `test` exist), plus the static-serving above.
+- `secure: true` on the cookie once behind HTTPS - currently `false` with a
+  comment at the call site in `authRoutes.ts`.
+- `VITE_API_URL` is baked in at BUILD time and there's no `frontend/.env`.
+  Unset at build = a bundle silently pointing at localhost:5000.
+- Test ladder before Render, not after: two browser profiles -> LAN via
+  `vite --host` from a phone (real network drops) -> cloudflared tunnel for
+  a second real person -> deploy.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
@@ -192,8 +211,11 @@ gets involved.
   - Not planned at this scope: E2E (Playwright/Cypress) - reasonable next
     step only if this grows past a portfolio project
 - Audit .env / secrets handling for production config (JWT_SECRET
-  rotation, MONGODB_URI, CORS origin currently hardcoded to
-  localhost:5173)
+  rotation, MONGODB_URI).
+  CORRECTED 8/23 - this used to say "CORS origin currently hardcoded to
+  localhost:5173", which is stale. `server.ts` reads `process.env.CORS_ORIGIN`
+  and only FALLS BACK to localhost:5173; the var is in `backend/.env.example`
+  alongside NODE_ENV. Config extraction happened in Phase 0.
 
 ## KNOWN GAPS VS README (not started)
 - No live sync of any kind yet. Socket.io was the README's planned answer;
