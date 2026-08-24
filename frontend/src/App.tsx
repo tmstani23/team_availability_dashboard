@@ -25,6 +25,32 @@ function LoginRoute() {
   return <LoginForm />;
 }
 
+// An admin on /dashboard is stranded: DashboardLayout has no Schedule/Manage
+// tabs, so there is no route from here to the manage tools. That is the state
+// anyone PROMOTED mid-session lands in - role-based landing runs once, at
+// login, so their open tab keeps a layout their new role has outgrown, and
+// only logging out and back in fixes it.
+//
+// Deliberately NOT ProtectedRoute requiredRole="member". That component's
+// wrong-role branch redirects to /dashboard, so an admin would bounce off this
+// route straight back onto it, forever.
+//
+// Asks homePathForRole instead of naming /admin/schedule directly, so this and
+// the post-login redirect can't drift apart. For a member the helper answers
+// /dashboard, this renders normally, and nothing changes.
+function DashboardRoute() {
+  const { role } = useAuth();
+  const home = homePathForRole(role);
+
+  // No loading guard needed - this sits inside ProtectedRoute, which renders
+  // nothing until the session check has resolved.
+  if (home !== '/dashboard') {
+    return <Navigate to={home} replace />;
+  }
+
+  return <DashboardLayout />;
+}
+
 // TeamProvider only mounts once ProtectedRoute confirms a session exists -
 // same rule the old AuthGate followed, since its fetches require auth
 function ProtectedLayout() {
@@ -50,7 +76,7 @@ function App() {
             {/* DashboardLayout wraps ScheduleView the same way AdminLayout
                 wraps its children below - gives /dashboard an AppHeader
                 (title + logout) without touching ScheduleView itself */}
-            <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route path="/dashboard" element={<DashboardRoute />}>
               <Route index element={<ScheduleView />} />
             </Route>
 

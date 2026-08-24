@@ -1,75 +1,70 @@
 # Next Steps
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 ## START HERE NEXT SESSION
 
-The `setStatus` refused-write fix landed 8/23 (in `docs/decisions.md`), and
-took the carried-forward permission check with it. ONE ROADMAP ITEM LEFT, and
-nothing else outstanding:
+Deploy prep landed 8/24 (in `docs/decisions.md`), and took the seedAdmin
+blocker with it. ONE ROADMAP ITEM LEFT, and it is now purely the hosting half:
 
-1. DEPLOY to Render + Atlas. The only remaining item from the original
-   roadmap. Research is in `docs/decisions.md`; possible any time since Phase
-   0. Left last because deploy is when a real second person gets involved.
-   Note `backend/` has no build script yet - only `dev` and `test` - so
-   producing `dist/` is part of this item, not something that already works.
-   The FRONTEND does have one (`tsc -b && vite build`), but `VITE_API_URL` is
-   baked in at BUILD time and there is no `frontend/.env`, only
-   `.env.example` - so a production build with that variable unset silently
-   ships a bundle pointing at localhost:5000. That's the first thing to get
-   right in this item, not the last.
+1. DEPLOY to Render + Atlas. Everything that had to be true before a host sees
+   this repo now is: `backend/` has `build` and `start`, Express serves
+   `frontend/dist` from the same origin with an Express 5 catch-all, the auth
+   cookie goes `secure` under `NODE_ENV=production`, `VITE_API_URL` can no
+   longer silently ship a localhost bundle, and `seedAdmin.ts` exists and has
+   been run against a genuinely empty database. What's left is account work:
+   create the Atlas cluster, allowlist your IP, run `seedAdmin.ts` with
+   `MONGODB_URI` pointed at it, then create the Render service.
 
-This is a good fresh-session boundary. Deploy is its own workstream - real
-accounts, real secrets, a build script that doesn't exist yet - and none of it
-shares context with what came before.
+Three things to carry into that session, all learned 8/24:
 
-CLOSED 8/23, carried forward since 8/17: the self-or-admin check on
-`PATCH /api/team-members/:id/timezone`, both directions, plus the same two on
-the status route. Verified by devtools fetch; see the QA paragraph in the 8/23
-entry. Worth knowing it's a SNAPSHOT, not a regression test - it goes stale the
-moment those routes change, and the permanent answer is still the Supertest
-work blocked on `bcrypt`.
+- Use a DIFFERENT `JWT_SECRET` on Render than locally. Sessions are bound to
+  the secret, so the same one across environments means a token minted against
+  one database authenticates against the other. That is not theoretical - it
+  happened during QA and produced a phantom admin view.
+- Render's build command wants `npm ci --include=dev && npm run build`. If you
+  set `NODE_ENV=production` as an env var there (and you must, for the cookie
+  and the static serving), npm skips devDependencies at install time and `tsc`
+  won't exist when the build runs.
+- Delete `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from Render's env once the
+  script has run. Nothing reads them at runtime.
 
-QA STATUS 8/23 (Tim, browser + devtools): the self-or-admin gate on both the
-status and timezone routes, all four directions - see the 8/23 COMPLETED entry.
-Tests green (151), lint clean.
+The test ladder from the original research is still worth walking, and only its
+first rung is done: two browser profiles (done, repeatedly, 8/24) -> LAN via
+`vite --host` from a phone -> cloudflared tunnel for a second real person ->
+deploy. Note the two-profile rung cannot test differing VIEWER timezones, since
+both browsers read the same OS clock.
 
-QA STATUS 8/8 (Tim, browser): 12-hour labels throughout; the grid reachable and
-scrollable at narrow widths with the name column pinned; sidebar stacking; the
-hours editor aligned and not overflowing. The preview was tested against the
-split end to end - previewing Tokyo from Chicago, a meeting booked at "8:00 PM"
-listed as 8:00 PM (viewer's clock), drew at 10AM on the Tokyo grid, and moved
-to 8PM on switching back. `npm run test:run` green (130), lint clean.
+CLOSED 8/24: the seedAdmin blocker, and its DECISION block moved to
+`docs/decisions.md` next to the entry it produced. Also closed, none of it
+planned: `authenticate` now revokes properly, a promoted member can reach the
+admin area without re-logging, the last admin can't be deleted, and a dead
+session logs the tab out instead of emptying it. See the 8/24 entry.
 
-STILL NOT COVERED BY QA, carried forward: a non-admin trying to delete someone
-else's meeting (should get the organizer-or-admin message, not a row that
-vanishes and reappears), and a meeting booked across the viewer's local
-midnight (should draw only the part falling on today). New on 8/8: the
-base-select popup styling has only been seen in Chromium - the `@supports`
-fallback path (Firefox, Safari) is reasoned about but unverified.
+QA STATUS 8/24 (Tim, browser + devtools): existing behaviour unaffected across
+two profiles; `seedAdmin.ts` against an empty database including the duplicate
+refusal and the UTC fallback; login as the seeded admin on a one-member
+database; database-swap eviction; promotion without re-login; deletion of a
+logged-in member rerouting them to login and refusing a re-login; the
+member-hits-admin-route loop check; last-admin delete refused with its wording
+visible on the card. Tests green on both halves, lint clean.
 
-QA status as of 8/3 - Phase 3, all by hand: meeting drawing + "In a meeting"
-pill, the same meeting moving 17:00 (Chicago) -> 07:00 (Tokyo) on a viewer
-switch and landing on Tokyo's next calendar day, the overlap row excluding
-both a lunch hour and a booked hour, a meeting nested inside a full-hour lunch
-still drawing, delete refreshing the grid, and cross-session status sync
-holding up in a second incognito profile. Lint clean, Vitest green.
+STILL NOT COVERED, carried forward: a non-admin trying to delete someone else's
+meeting (should get the organizer-or-admin message, not a row that vanishes and
+reappears - note `deleteMember` got exactly this treatment on 8/24, so the
+shape to copy now exists in two places), and a meeting booked across the
+viewer's local midnight (should draw only the part falling on today). From 8/8:
+the `base-select` popup styling has only been seen in Chromium - the `@supports`
+fallback path (Firefox, Safari) is reasoned about but unverified. New on 8/24:
+`seedAdmin.ts`'s invalid-timezone refusal and its missing-required-var bail have
+never been run.
 
-QA status as of 8/2 (Phases 0-2) - login and session restore, status set +
-persist, overnight shifts (20:00-05:00 saving and drawing continuously through
-midnight), lunches rendering as fractional carve-outs with correct tick
-spacing, derived "At lunch"/"Offline" statuses, and the admin hours editor's
-timezone panel against a Sydney member from Chicago (+15h, cross-date warning
-firing correctly).
-
-Test coverage as of 8/23: pure functions on both halves (frontend 8/8 and
-before, backend 8/12) plus four component areas on the frontend (8/17, one
-test added 8/23 - 151 total). The React-state/network seam that produced all
-three 8/2 bugs is now reachable - the status rollback is pinned from BOTH
-failure directions, a thrown fetch and a refused response, and the
-display/write split is pinned from both sides. Still NOT covered: route handlers, every auth guard, and
-anything asserting a write actually landed. See the roadmap at the bottom of
-this file.
+Test coverage as of 8/24: unchanged from 8/23 in scope - pure functions on both
+halves plus four component areas on the frontend, 151 total - but the risk
+profile moved. NOTHING from 8/24 has an automated test, and that includes
+`authenticate`, which is the highest-risk code in the project and now has a
+database lookup and a third failure mode in it. Still blocked on the same
+`bcrypt` import chain. See the roadmap at the bottom of this file.
 
 ## WHERE THE HISTORY WENT
 
@@ -82,7 +77,8 @@ Go read that file before changing anything non-obvious. A lot of what looks
 like an arbitrary choice in this codebase is a decision someone already argued
 through - the instant-vs-wall-clock split for meetings, why `break` and
 `meeting` are absent from the schema enum, why polling beat sockets, why the
-stored status default is `away`. New entries get appended there, not here.
+stored status default is `away`, and now why `authenticate` pays for a database
+lookup on every request. New entries get appended there, not here.
 
 ## NEXT STEPS (priority order)
 
@@ -92,90 +88,65 @@ preview, responsive) are all DONE. Phase briefs are in docs/phases/ and what
 actually landed is in `docs/decisions.md` - the at-a-glance summaries that used
 to sit here were describing finished work.
 
-No DESIGN-ONLY blocks are left here. The jsdom + RTL block made the trip across
-to `docs/decisions.md` on 8/17 with the COMPLETED entry it produced, the same
-way the timezone-preview block did on 8/8 and the backend-validation block on
-8/12. Anything new that needs designing before it's built gets written here
-first and moves the same way.
+No DESIGN-ONLY blocks are left here. The seedAdmin block made the trip across
+to `docs/decisions.md` on 8/24 with the COMPLETED entry it produced, the same
+way the jsdom + RTL block did on 8/17, the timezone-preview block on 8/8 and
+the backend-validation block on 8/12. Anything new that needs designing before
+it's built gets written here first and moves the same way.
 
 What remains is below.
 
 ### 4 — DEPLOY to Render + Atlas
 
-Full research in `docs/decisions.md` ("Deployment research (7/25)"). Could
-happen any time after Phase 0; deliberately last, since deploy is when a real
-second person gets involved. The essentials:
+Full research in `docs/decisions.md` ("Deployment research (7/25)"), and the
+code half is done as of 8/24 - see that entry for what each piece does and why.
+The essentials that still matter:
 
 - Render = PaaS running Express (git-push deploy, free tier, HTTPS
   terminated for you, spins down after 15 min idle / ~1 min cold start).
   Atlas = managed Mongo, free tier 512MB and permanent. Swap `MONGODB_URI`.
-- ONE service, not two. Express serves the built frontend (`express.static`
-  on `dist/` + a catch-all so client routes return `index.html`). This is
-  load-bearing, not convenience: same origin is what keeps the auth cookie's
-  `sameSite: 'lax'` working. Splitting the domains forces `'none'` +
-  `secure`, which is the third-party-cookie pattern browsers keep clamping
-  down on and breaks differently in Safari.
-- Not yet built: a backend `build` script and production `start` (only `dev`
-  via ts-node-dev and `test` exist), plus the static-serving above.
-- `secure: true` on the cookie once behind HTTPS - currently `false` with a
-  comment at the call site in `authRoutes.ts`.
-- `VITE_API_URL` is baked in at BUILD time and there's no `frontend/.env`.
-  Unset at build = a bundle silently pointing at localhost:5000.
-- Test ladder before Render, not after: two browser profiles -> LAN via
-  `vite --host` from a phone (real network drops) -> cloudflared tunnel for
-  a second real person -> deploy.
-- BLOCKER, found 8/23: a fresh database has no way to make its first admin.
-  See the DECISION block below - build `seedAdmin.ts` before touching Render.
-
-### DECISION: first admin comes from a seedAdmin script, not boot-time bootstrap
-
-THE PROBLEM. A fresh Atlas database has zero `UserBadge` documents, and every
-door into creating one is admin-gated: `/auth/register` is gone (replaced by
-`POST /api/team-members`, which is `requireAdmin`), and `PATCH /:id/role` is
-admin-only too. So nobody can log in, so nobody can create anyone. The local
-admin predates this - it came from the old register flow, and that door is
-shut. `resetAdminPassword.ts` only resets an EXISTING badge; its own error
-message says to "use seedAdmin.ts instead", and that file has never existed
-(no git history for the path). Deployed, this stops the app cold.
-
-THE CHOICE. Considered a boot-time bootstrap - if `UserBadge.countDocuments()`
-is 0, create the admin from env - and rejected it. Its one real advantage is
-needing no shell on the host, and that advantage doesn't apply: the script can
-run from Tim's laptop with `MONGODB_URI` pointed at Atlas (allowlist the IP).
-What's left is cost. `SEED_ADMIN_PASSWORD` would have to live in Render's env
-permanently, since the code reads it on every start, where a script lets you
-set the two vars, run once, and delete them. And "zero badges" is true on
-first boot AND whenever something is already wrong - wrong cluster in
-`MONGODB_URI`, a dropped collection, a staging DB sharing config - so the
-failure mode isn't "bootstrap didn't run", it's "bootstrap ran when it
-shouldn't have", silently, with a months-old env password. Startup code with
-privilege is a new category for this codebase; a one-off script in `scripts/`
-is not - `migrateStatus.ts` and `migrateToRecurringShifts.ts` are already
-exactly that, and `resetAdminPassword.ts` already uses these same two vars.
-
-WHAT TO BUILD. `backend/src/scripts/seedAdmin.ts`, sibling to
-`resetAdminPassword.ts` and following its shape: read `SEED_ADMIN_EMAIL` and
-`SEED_ADMIN_PASSWORD` (both already in `.env.example`), bail if either is
-missing, connect, and create the linked `TeamMember` + `UserBadge` pair with
-`role: 'admin'` and a bcrypt hash at the same `SALT_ROUNDS = 10`. Refuse if a
-badge with that email already exists rather than overwriting - resetting a
-password is the other script's job, and the two shouldn't be able to be
-confused for one another. Delete the env vars from Render once it has run.
-
-WHEN THIS WOULD HAVE BEEN WRONG: a host with genuinely no route to the
-database, or a self-hosted product where "run this script" is a support
-burden. Neither is this project.
+- ONE service, not two, and the reason is the cookie, not convenience. Built
+  and in `server.ts` now.
+- `NODE_ENV=production` switches FOUR things, not one: it skips the dev-only
+  `syncIndexes()`, trusts one proxy hop for `X-Forwarded-*`, puts `secure` on
+  the auth cookie, and serves `frontend/dist`. Getting it wrong is quiet -
+  the symptom is a plain-text "Backend is running" at `/`.
+- Build both halves. The frontend build has to run too, and its output is what
+  Express serves. See the build-command note in START HERE.
+- Still not done: anything requiring an account. Atlas cluster, IP allowlist,
+  Render service, env vars, and the first `seedAdmin.ts` run against Atlas.
 
 ## KNOWN ISSUES / TECH DEBT (canonical list - README points here)
 
-- TIMEZONE NOW HAS TWO WRITING SURFACES: the member's own `/profile` and the
-  admin's TeamMemberCard. Accepted deliberately on 8/11 rather than collapsed -
-  the admin path is the override for onboarding someone who has never logged
-  in - but it is two forms writing one field, so a change to how a zone is
-  validated or presented has to land in both. They share `TIMEZONE_OPTIONS`
-  and the same route, which is what keeps them honest.
-  (This entry replaces "there is NO self-service timezone editor", which was
-  the known issue here until 8/11.)
+- AUTH STATE IN THE CLIENT IS A MOUNT-TIME SNAPSHOT. `AuthContext` asks
+  `/api/auth/me` once, in a mount effect, so a role change mid-session doesn't
+  reach an open tab until it reloads. PROMOTION is handled - `/dashboard`
+  redirects an admin to `/admin/schedule` as of 8/24 - but DEMOTION is not: a
+  demoted admin keeps a Manage tab that now only yields 403s. Harmless, since
+  the server stopped believing the token on 8/24, and it under-grants rather
+  than over-grants. The clean fix is NOT polling `/auth/me` (a fourth request
+  every 15s for something that changes about twice a year) but having one of
+  the three responses already polled carry the caller's current role, so
+  `AuthContext` can update from data in flight. That's a response-shape change
+  and a context-seam change, so it wants its own session.
+- A 401 ON A ONE-OFF ACTION STILL FAILS IN PLACE. The POLL evicts a dead
+  session properly as of 8/24, but setting a status or booking a meeting
+  against a dead session just shows whatever error that call shows today. The
+  poll catches it within 15 seconds regardless, so the gap is one interval, not
+  indefinite. A shared fetch wrapper is the real answer if this ever grows.
+- AUTH NOW DEPENDS ON MONGO BEING REACHABLE. `authenticate` was pure CPU and
+  now does a badge lookup, so a database outage becomes a login outage rather
+  than only a data outage. Deliberate - it's the price of revocation working -
+  and the failed-lookup path answers 500 rather than 401 specifically so a blip
+  can't masquerade as an expiry and log everyone out. Worth knowing before
+  reading a confusing incident.
+- TIMEZONE NOW HAS THREE WRITING SURFACES: the member's own `/profile`, the
+  admin's TeamMemberCard, and `seedAdmin.ts`. The first two were accepted
+  deliberately on 8/11 rather than collapsed - the admin path is the override
+  for onboarding someone who has never logged in - and the script joined them
+  on 8/24. All three now validate the same way (`Intl.DateTimeFormat` in a
+  try/catch), but that is three places to change if the rule ever moves, and
+  the script found out the hard way what happens when one of them doesn't.
 - A timezone PREVIEW draws meetings from a fetch it doesn't control. The
   meetings request is scoped to the VIEWER's local day (deliberately - a
   display control must not change what the app requests), but ScheduleGrid
@@ -222,7 +193,7 @@ burden. Neither is this project.
   purpose: the overlap row depends on being pixel-aligned with the member
   rows, and that alignment is the thing most likely to break silently.
 
-## PRODUCTION DEPLOYMENT CHECKLIST (not started, revisit before going live)
+## PRODUCTION DEPLOYMENT CHECKLIST (revisit before going live)
 - syncIndexes() is dev-only by design - before deploying, manually audit
   indexes (Compass or a real migration) instead of relying on this running
   automatically
@@ -230,18 +201,22 @@ burden. Neither is this project.
   7/20; backend validation tests DONE 8/12; frontend component tests DONE
   8/17; the rest still planned, own workstream):
   - Backend unit tests for auth logic - password hashing, JWT verification,
-    role-gated middleware (highest-risk code in the project). Vitest now
-    exists in `backend/`, so this no longer needs a runner decision - but it
-    DOES need the `bcrypt` import chain solved, since native bindings can't
-    load in Claude's Linux sandbox against Windows-installed `node_modules`.
-    See the 8/12 DECISION in `docs/decisions.md`.
+    role-gated middleware (highest-risk code in the project, and MORE so since
+    8/24: `authenticate` now performs a badge lookup and has three distinct
+    failure modes, none of them pinned). Vitest now exists in `backend/`, so
+    this no longer needs a runner decision - but it DOES need the `bcrypt`
+    import chain solved, since native bindings can't load in Claude's Linux
+    sandbox against Windows-installed `node_modules`. See the 8/12 DECISION in
+    `docs/decisions.md`.
   - Integration tests for API routes (team-members, recurring-shifts,
     auth) via Supertest. NOT work-shifts - those routes are deleted in
     Phase 2. Prerequisites, none of them done: splitting `app.ts` out of
     `server.ts` so the app can be imported without starting a server or
     connecting to Mongo, the bcrypt problem above, and a decision on whether
     to mock Mongoose or run a real test database. This is what would cover
-    the self-or-admin 403 permanently rather than by devtools fetch.
+    the self-or-admin 403 permanently rather than by devtools fetch - and now
+    also the last-admin guards on both `PATCH /:id/role` and `DELETE /:id`,
+    which are a pair that must not drift apart again.
   - Frontend component tests (Vitest + React Testing Library) - DONE 8/17,
     scoped 8/8. Four areas, 12 tests, not coverage; see the COMPLETED entry
     and the DECISION block in `docs/decisions.md`. The display/write split is
@@ -251,12 +226,12 @@ burden. Neither is this project.
     real provider and stub `fetch` the way the status-rollback test does.
   - Not planned at this scope: E2E (Playwright/Cypress) - reasonable next
     step only if this grows past a portfolio project
-- Audit .env / secrets handling for production config (JWT_SECRET
-  rotation, MONGODB_URI).
-  CORRECTED 8/23 - this used to say "CORS origin currently hardcoded to
-  localhost:5173", which is stale. `server.ts` reads `process.env.CORS_ORIGIN`
-  and only FALLS BACK to localhost:5173; the var is in `backend/.env.example`
-  alongside NODE_ENV. Config extraction happened in Phase 0.
+- Audit .env / secrets handling for production config. `server.ts` reads
+  `process.env.CORS_ORIGIN` and only FALLS BACK to localhost:5173; the var is
+  in `backend/.env.example` alongside NODE_ENV. Config extraction happened in
+  Phase 0. Added 8/24: `JWT_SECRET` must DIFFER between local and Render, and
+  the two `SEED_ADMIN_*` vars should be deleted from any host once the script
+  has run.
 
 ## KNOWN GAPS VS README (not started)
 - No live sync of any kind yet. Socket.io was the README's planned answer;

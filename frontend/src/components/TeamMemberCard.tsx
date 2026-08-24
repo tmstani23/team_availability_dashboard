@@ -58,6 +58,21 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
   const [editData, setEditData] = useState(member);
   const [editError, setEditError] = useState('');
 
+  // Why deleting can fail with something worth reading: the server refuses to
+  // remove the last remaining admin, which is not a rule you can see coming
+  // from this card.
+  const [deleteError, setDeleteError] = useState('');
+
+  const handleDelete = async () => {
+    setDeleteError('');
+    const result = await deleteMember(member._id);
+    // A cancelled confirm comes back as a failure with no message - only an
+    // actual refusal carries wording, so this stays quiet for the cancel.
+    if (!result.success && result.message) {
+      setDeleteError(result.message);
+    }
+  };
+
   // Login info - email + admin/member access level, fetched on demand from
   // GET /:id/badge rather than included in the main roster fetch, so that
   // endpoint stays as narrow as it's always been
@@ -337,13 +352,14 @@ const TeamMemberCard = ({ member }: TeamMemberCardProps) => {
             </Button>
             {/* Centralized delete confirmation logic lives in TeamContext */}
             <Button
-              onClick={() => deleteMember(member._id)}
+              onClick={handleDelete}
               variant="danger" size="md"
             >
               Delete
             </Button>
           </div>
 
+          {deleteError && <p className="text-dnd text-sm mt-2">{deleteError}</p>}
           {badgeError && <p className="text-dnd text-sm mt-2">{badgeError}</p>}
 
           {/* Login-info panel: email/role display + the two admin actions

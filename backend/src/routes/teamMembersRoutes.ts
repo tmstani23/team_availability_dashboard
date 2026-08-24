@@ -333,6 +333,24 @@ router.put('/:id/hours', authenticate, async (req: AuthRequest, res) => {
 // DELETE a team member by ID - admin only
 router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   try {
+    // Same rule PATCH /:id/role enforces, for the same reason: the failure
+    // worth preventing is ZERO admins left, not "you removed yourself". Both
+    // routes decide whether an admin stops being one, so they can't be allowed
+    // to disagree - before this, demoting the last admin was refused while
+    // deleting them went through, which is the same lockout by another door.
+    //
+    // Checked BEFORE the delete, or the refusal would arrive after the member
+    // was already gone. A member with no badge can't affect the admin count,
+    // so a missing one just falls through to the delete.
+    const badge = await UserBadgeModel.findOne({ teamMemberId: req.params.id });
+
+    if (badge?.role === 'admin') {
+      const adminCount = await UserBadgeModel.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) {
+        return res.status(400).json({ message: 'Cannot delete the last remaining admin' });
+      }
+    }
+
     const deleted = await TeamMemberModel.findByIdAndDelete(req.params.id);
 
     if (!deleted) {

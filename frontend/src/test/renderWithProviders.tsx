@@ -49,7 +49,7 @@ const defaultTeam: TeamContextType = {
   setTimezone: async () => ({ success: true }),
   createMeeting: async () => ({ success: true }),
   deleteMeeting: async () => ({ success: true }),
-  deleteMember: async () => {},
+  deleteMember: async () => ({ success: true }),
   refreshAllData: async () => {},
   handleMemberAdded: () => {},
   viewerTimezone: 'America/Chicago',

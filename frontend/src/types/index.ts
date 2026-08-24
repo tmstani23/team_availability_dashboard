@@ -107,7 +107,11 @@ export interface TeamContextType {
     attendeeIds: string[];
   }) => Promise<{ success: boolean; message?: string }>;
   deleteMeeting: (id: string) => Promise<{ success: boolean; message?: string }>;
-  deleteMember: (id: string) => Promise<void>;
+  // Same outcome shape as the two above, and now for a third reason: the
+  // server refuses to delete the LAST REMAINING ADMIN, which is a rule the
+  // user can't see coming and the UI has to be able to explain. A cancelled
+  // confirm returns success: false with no message - nothing to say.
+  deleteMember: (id: string) => Promise<{ success: boolean; message?: string }>;
   refreshAllData: () => Promise<void>;
   handleMemberAdded: () => void;
   // The zone every wall-clock conversion in the UI runs through: the grid's

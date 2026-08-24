@@ -10,5 +10,9 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // Test files are kept out of the BUILD, not out of type checking - editors
+  // and Vitest still read them. This keeps dist/ to only what the server runs,
+  // and keeps the build from needing vitest resolvable on a host that
+  // installed production dependencies only.
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

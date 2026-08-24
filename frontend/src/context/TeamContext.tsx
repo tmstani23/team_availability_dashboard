@@ -34,9 +34,12 @@ const BROWSER_TIMEZONE: string | null = (() => {
 })();
 
 export const TeamProvider = ({ children }: { children: ReactNode }) => {
-  // Who is actually logged in. Used only as a FALLBACK timezone source below -
-  // this provider does not otherwise care about identity.
-  const { teamMemberId } = useAuth();
+  // Who is actually logged in. teamMemberId is used only as a FALLBACK
+  // timezone source below - this provider does not otherwise care about
+  // identity. logout is here for the 401 handling in refreshAllData: the poll
+  // is the first thing to find out a session has died, so it has to be the
+  // thing that ends it.
+  const { teamMemberId, logout } = useAuth();
 
   // Standing weekly hours (one record per member per weekday) - replaced the
   // old work-shifts fetch. This is now the only shift data the app fetches:
@@ -132,6 +135,26 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
         fetch(`${API_BASE}/api/recurring-shifts`, { credentials: 'include' }),
         meetingsUrl ? fetch(meetingsUrl, { credentials: 'include' }) : Promise.resolve(null)
       ]);
+      // A 401 here means the session is over while the tab is still open:
+      // deleted member, expired token, or a token minted against a different
+      // database. It has to be caught BEFORE the narrowing below, because that
+      // narrowing turns any non-array body - including { message: '...' } from
+      // a 401 - into an empty array, which is indistinguishable from a team
+      // with nobody in it. The symptom is a fully drawn dashboard with no
+      // rows, no identity, and the first-run hours prompt inviting you to save
+      // something the server will refuse.
+      //
+      // logout() clears auth state, ProtectedRoute then sees no session and
+      // redirects, and this provider unmounts with its interval. So the tab
+      // lands on /login within one poll of the session dying. Checked on the
+      // members response alone: all three requests carry the same cookie
+      // through the same middleware, so they succeed or fail together, and
+      // that one is never conditional the way meetings is.
+      if (membersRes.status === 401) {
+        await logout();
+        return;
+      }
+
       // Typed unknown, not trusted as the happy-path shape: both endpoints
       // return an array on success but a { message } object on failure, so
       // these get narrowed with Array.isArray before use rather than being
@@ -397,21 +420,42 @@ export const TeamProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const deleteMember = async (id: string) => {
-    if (!confirm('Delete this team member?')) return;
+    // No message on a cancelled confirm - there's nothing to explain.
+    if (!confirm('Delete this team member?')) return { success: false };
 
-    // Snapshot the current list before optimistically removing the member,
-    // so we have something to restore if the DELETE request fails
-    const originalMembers = [...members];
-    setMembers(prev => prev.filter(member => member._id !== id));
-
+    // NOT optimistic, unlike deleteMeeting above, and the difference is
+    // deliberate. The refusal message for this route is rendered BY THE CARD
+    // BEING DELETED - so removing the row first unmounts the very component
+    // that has to display the answer. Remove, await, restore, and the card
+    // remounts with fresh empty state: the message is set on an instance that
+    // no longer exists and you see, at most, one frame of it.
+    //
+    // Waiting for the response costs a few hundred milliseconds on an action
+    // that already made the user answer a confirm dialog, so there is nothing
+    // to buy back here. Meetings are different - they're light, frequent, and
+    // their error surface isn't inside the row - which is why that one keeps
+    // its snapshot-and-restore and this one doesn't need one at all.
     try {
-      await fetch(`${API_BASE}/api/team-members/${id}`, {
+      const res = await fetch(`${API_BASE}/api/team-members/${id}`, {
         method: 'DELETE',
         credentials: 'include'
       });
+
+      if (!res.ok) {
+        // Nothing to roll back - the row was never removed.
+        const data: unknown = await res.json().catch(() => null);
+        const message =
+          typeof data === 'object' && data !== null && 'message' in data
+            ? String((data as { message: unknown }).message)
+            : 'Could not delete this member';
+        return { success: false, message };
+      }
+
+      setMembers(prev => prev.filter(member => member._id !== id));
+      return { success: true };
     } catch (err) {
       console.error('Failed to delete member:', err);
-      setMembers(originalMembers);
+      return { success: false, message: 'Could not reach the server' };
     }
   };
 

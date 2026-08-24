@@ -50,10 +50,16 @@ router.post('/login', async (req, res) => {
     // path to the directory of the request that set it (here, '/api/auth'),
     // meaning it would only get sent back on /api/auth/* requests and never
     // reach /api/team-members or /api/recurring-shifts.
+    //
+    // secure tells the browser to send this cookie over HTTPS only. It has to
+    // be off in dev - localhost is plain HTTP, and a secure cookie there is
+    // set and then never sent back, so you'd log in and immediately look
+    // logged out. Tied to NODE_ENV rather than hardcoded so the same build
+    // does the right thing in both places.
     res.cookie('token', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // set true once deployed behind HTTPS
+      secure: process.env.NODE_ENV === 'production',
       path: '/',
       maxAge: 24 * 60 * 60 * 1000 // 24h, matches the JWT's own expiry
     });
@@ -69,7 +75,16 @@ router.post('/login', async (req, res) => {
 // path must match what was used to set the cookie, or the browser won't
 // recognize it as the same cookie to clear.
 router.post('/logout', (req, res) => {
-  res.clearCookie('token', { path: '/' });
+  // The other attributes are mirrored from the login cookie too. Only name,
+  // path and domain decide whether the browser considers this the same cookie,
+  // but sending a clear with mismatched sameSite/secure gets flagged in
+  // Chrome's console, and matching them costs nothing.
+  res.clearCookie('token', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/'
+  });
   res.json({ message: 'Logged out' });
 });
 
