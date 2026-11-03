@@ -139,3 +139,6 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# raw screen recording (too large for GitHub); compressed demo.mp4 is committed
+demo_vid1.mp4
