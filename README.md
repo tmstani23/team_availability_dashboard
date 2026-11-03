@@ -4,7 +4,9 @@ A workspace visualizer built to coordinate global engineering workflows across m
 
 ## Demo
 
-**[Watch the 2.5 minute walkthrough](demo.mp4)** (screen recording, sample data with made-up names).
+![Dashboard demo, sped up 3x](docs/demo.gif)
+
+*Sped up 3x. [Watch the full 2.5 minute walkthrough](demo.mp4). Sample data with made-up names.*
 
 It shows the live schedule grid across several time zones, status changes (active, away, do not disturb) showing up in the sidebar, picking teammates to find a shared window, booking a meeting from that window, and the admin panel for editing members and their weekly hours.
 
