@@ -2,6 +2,12 @@
 
 A workspace visualizer built to coordinate global engineering workflows across multiple time zones. This application eliminates manual time arithmetic by serving as a single source of truth for distributed team schedules, availability statuses, and meeting windows.
 
+## Demo
+
+**[Watch the 2.5 minute walkthrough](demo.mp4)** (screen recording, sample data with made-up names).
+
+It shows the live schedule grid across several time zones, status changes (active, away, do not disturb) showing up in the sidebar, picking teammates to find a shared window, booking a meeting from that window, and the admin panel for editing members and their weekly hours.
+
 *Status: in development. Scheduling, timezone, auth, live cross-session sync, recurring lunch breaks, and the meeting model all work. Remaining work is polish and cleanup — see `nextSteps.md`. Feature entries below are labelled individually.*
 
 ## Goals & Design Constraints
